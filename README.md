@@ -1,4 +1,10 @@
-# Clawd on VS Code
+<p align="center">
+  <img src="resources/icons/app_icon.png" width="112" alt="Clawd with a wizard hat">
+</p>
+<h1 align="center">Clawd on VS Code</h1>
+<p align="center">
+  A tiny sidebar spell for watching your coding agents work.
+</p>
 
 Clawd on VS Code is a workspace extension that brings the Clawd on Desk agent-status experience into the VS Code sidebar. It runs the Clawd state server inside the VS Code extension host, which lets local workspaces and Remote-SSH sessions report coding-agent activity without a separate desktop tunnel.
 

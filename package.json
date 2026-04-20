@@ -1,10 +1,23 @@
 {
   "name": "clawd-on-vscode",
   "displayName": "Clawd on VS Code",
-  "description": "An interactive Clawd coding pet for VS Code with local and Remote-SSH agent state support.",
+  "description": "A whimsical Clawd sidebar pet that reacts to coding-agent activity in local and Remote-SSH VS Code workspaces.",
   "version": "0.1.0",
+  "icon": "resources/icons/app_icon.png",
+  "author": {
+    "name": "alex6095",
+    "url": "https://github.com/alex6095"
+  },
   "publisher": "alex6095",
   "license": "MIT",
+  "homepage": "https://github.com/alex6095/clawd-on-vscode#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alex6095/clawd-on-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alex6095/clawd-on-vscode/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -14,11 +27,20 @@
   "keywords": [
     "clawd",
     "vscode",
+    "sidebar",
     "pet",
+    "agent",
+    "coding-agent",
     "claude",
     "codex",
+    "gemini",
+    "opencode",
     "remote-ssh"
   ],
+  "galleryBanner": {
+    "color": "#1f2430",
+    "theme": "dark"
+  },
   "extensionKind": [
     "workspace"
   ],
