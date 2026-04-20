@@ -1,4 +1,4 @@
-// Clawd on Desk — opencode Plugin
+// Clawd for VS Code — opencode Plugin
 // Runs inside the opencode process (Bun runtime) and forwards session/tool
 // events to the Clawd HTTP server (127.0.0.1:23333-23337).
 //
@@ -27,7 +27,8 @@ import { join } from "path";
 import { randomBytes, timingSafeEqual } from "crypto";
 import { execSync } from "child_process";
 
-const CLAWD_DIR = join(homedir(), ".clawd");
+const CLAWD_SERVER_ID = "clawd-for-vscode";
+const CLAWD_DIR = join(homedir(), ".clawd-for-vscode");
 const RUNTIME_CONFIG_PATH = join(CLAWD_DIR, "runtime.json");
 const DEBUG_LOG_PATH = join(CLAWD_DIR, "opencode-plugin.log");
 const SERVER_PORTS = [23333, 23334, 23335, 23336, 23337];
@@ -277,7 +278,7 @@ function postToClawd(urlPath, body, logTag) {
         debugLog(`POST[${reqId}] ${logTag} port=${port} status=${res.status} header=${header} elapsed=${elapsed}ms`);
         // Port range is unprivileged so another app could answer — require the
         // Clawd identity header before trusting the response.
-        if (header === "clawd-on-desk") {
+        if (header === CLAWD_SERVER_ID) {
           _cachedPort = port;
           try { await res.text(); } catch {}
           debugLog(`POST[${reqId}] ${logTag} OK port=${port}`);

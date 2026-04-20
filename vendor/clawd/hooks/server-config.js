@@ -3,14 +3,14 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 
-const CLAWD_SERVER_ID = "clawd-on-desk";
+const CLAWD_SERVER_ID = "clawd-for-vscode";
 const CLAWD_SERVER_HEADER = "x-clawd-server";
 const DEFAULT_SERVER_PORT = 23333;
 const SERVER_PORT_COUNT = 5;
 const SERVER_PORTS = Array.from({ length: SERVER_PORT_COUNT }, (_, i) => DEFAULT_SERVER_PORT + i);
 const STATE_PATH = "/state";
 const PERMISSION_PATH = "/permission";
-const RUNTIME_CONFIG_PATH = path.join(os.homedir(), ".clawd", "runtime.json");
+const RUNTIME_CONFIG_PATH = path.join(os.homedir(), ".clawd-for-vscode", "runtime.json");
 
 function normalizePort(value) {
   const port = Number(value);

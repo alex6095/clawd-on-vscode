@@ -1,7 +1,7 @@
 {
-  "name": "clawd-on-code",
-  "displayName": "Clawd",
-  "description": "An interactive Clawd coding pet for VS Code, with local and Remote-SSH agent state support.",
+  "name": "clawd-for-vscode",
+  "displayName": "Clawd for VS Code",
+  "description": "An interactive Clawd coding pet for VS Code with local and Remote-SSH agent state support.",
   "version": "0.1.0",
   "publisher": "clawd",
   "license": "MIT",
@@ -13,6 +13,7 @@
   ],
   "keywords": [
     "clawd",
+    "vscode",
     "pet",
     "claude",
     "codex",

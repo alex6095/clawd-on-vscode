@@ -253,7 +253,7 @@ class GeminiLogMonitor {
 
   _debugLog(msgCount, lastMsg) {
     if (!this._debugLogPath) {
-      const dir = path.join(os.homedir(), ".clawd");
+      const dir = path.join(os.homedir(), ".clawd-for-vscode");
       try { fs.mkdirSync(dir, { recursive: true }); } catch {}
       this._debugLogPath = path.join(dir, "gemini-debug.log");
     }

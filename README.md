@@ -19,7 +19,7 @@ The extension renders an animated Clawd or Calico pet in the Activity Bar view, 
 Install the packaged VSIX from this folder:
 
 ```bash
-code --install-extension clawd-on-code-0.1.0.vsix
+code --install-extension clawd-for-vscode-0.1.0.vsix
 ```
 
 Or package a fresh VSIX locally:
@@ -51,6 +51,6 @@ The Clawd character is an unofficial fan project inspired by Anthropic's Claude 
 
 ## License
 
-Source code is licensed under the [MIT License](LICENSE).
+Source code is licensed under the MIT License. See `LICENSE`.
 
-Vendored artwork and media assets are not covered by the MIT license. They remain reserved by their respective copyright holders; see [ASSETS-LICENSE](ASSETS-LICENSE) for details.
+Vendored artwork and media assets are not covered by the MIT license. They remain reserved by their respective copyright holders; see `ASSETS-LICENSE` for details.
