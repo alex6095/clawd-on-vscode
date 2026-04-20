@@ -1,9 +1,11 @@
+.vscode/settings.json
+
 node_modules/
-*.vsix
 .vscode-test/
 out/
 dist/
 coverage/
+*.vsix
 *.log
 .env
 .DS_Store

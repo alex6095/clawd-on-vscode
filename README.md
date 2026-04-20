@@ -1,6 +1,6 @@
-# Clawd for VS Code
+# Clawd on VS Code
 
-Clawd for VS Code is a workspace extension that brings the Clawd on Desk agent-status experience into the VS Code sidebar. It runs the Clawd state server inside the VS Code extension host, which lets local workspaces and Remote-SSH sessions report coding-agent activity without a separate desktop tunnel.
+Clawd on VS Code is a workspace extension that brings the Clawd on Desk agent-status experience into the VS Code sidebar. It runs the Clawd state server inside the VS Code extension host, which lets local workspaces and Remote-SSH sessions report coding-agent activity without a separate desktop tunnel.
 
 The extension renders an animated Clawd or Calico pet in the Activity Bar view, tracks supported agent sessions, shows permission and notification prompts in the sidebar, and can sync the same agent hook/plugin integrations used by Clawd on Desk.
 
@@ -19,7 +19,7 @@ The extension renders an animated Clawd or Calico pet in the Activity Bar view, 
 Install the packaged VSIX from this folder:
 
 ```bash
-code --install-extension clawd-for-vscode-0.1.0.vsix
+code --install-extension clawd-on-vscode-0.1.0.vsix
 ```
 
 Or package a fresh VSIX locally:
