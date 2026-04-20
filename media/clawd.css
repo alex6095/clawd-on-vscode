@@ -1,0 +1,424 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+button {
+  font: inherit;
+}
+
+.clawd-shell {
+  display: grid;
+  grid-template-rows: auto minmax(168px, 34vh) auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 4px;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+#themeBtn .theme-icon {
+  display: none;
+}
+
+body:not([data-next-theme]) #themeBtn .theme-icon-calico,
+body[data-next-theme="calico"] #themeBtn .theme-icon-calico,
+body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
+  display: block;
+}
+
+#dndBtn .bell-off {
+  display: none;
+}
+
+.is-dnd #dndBtn .bell-on {
+  display: none;
+}
+
+.is-dnd #dndBtn .bell-off {
+  display: block;
+}
+
+.pet-stage {
+  position: relative;
+  min-height: 168px;
+  margin: 0 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 70%, transparent), transparent 74%),
+    var(--vscode-sideBar-background);
+}
+
+.pet-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.pet-stage::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 18px;
+  height: 1px;
+  background: var(--vscode-sideBar-border);
+  opacity: 0.8;
+}
+
+.pet-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  width: min(110px, 58%);
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--vscode-foreground) 16%, transparent);
+  filter: blur(5px);
+}
+
+.pet-container {
+  position: absolute;
+  inset: 0;
+}
+
+.pet-asset {
+  position: absolute;
+  left: var(--pet-left, 50%);
+  bottom: var(--pet-bottom, 22px);
+  width: var(--pet-width, min(180px, 86%));
+  height: var(--pet-height, auto);
+  max-width: none;
+  max-height: none;
+  transform: translate(var(--drag-x, 0), var(--drag-y, 0));
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+}
+
+.pet-asset svg,
+.pet-asset img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+.pet-asset.fade-in {
+  animation: pet-in 160ms ease-out both;
+}
+
+@keyframes pet-in {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--vscode-sideBar-border);
+  border-bottom: 1px solid var(--vscode-sideBar-border);
+}
+
+.eyebrow {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.status-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+
+.permissions {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.sessions-wrap {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--vscode-sideBar-border);
+}
+
+.sessions {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  scrollbar-width: thin;
+}
+
+.sessions::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sessions::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  border-radius: 4px;
+}
+
+.sessions::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.permission-card,
+.session-row {
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 6px;
+  background: var(--vscode-editor-background);
+}
+
+.permission-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+}
+
+.permission-head,
+.session-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.agent-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.agent-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.session-row {
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: transparent;
+}
+
+.session-row[data-agent="claude-code"] { border-left-color: #E8784D; }
+.session-row[data-agent="codex"]        { border-left-color: #6B7AFF; }
+.session-row[data-agent="gemini-cli"]   { border-left-color: #4285F4; }
+.session-row[data-agent="cursor-agent"] { border-left-color: #9B8AFB; }
+.session-row[data-agent="copilot-cli"]  { border-left-color: #2DBA4E; }
+.session-row[data-agent="opencode"]     { border-left-color: #A3A3A3; }
+
+.idle-group {
+  display: contents;
+}
+
+.idle-summary {
+  padding: 4px 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.idle-summary::-webkit-details-marker {
+  display: none;
+}
+
+.idle-summary::before {
+  content: "▶ ";
+  font-size: 9px;
+  opacity: 0.7;
+  margin-right: 2px;
+}
+
+.idle-group[open] .idle-summary::before {
+  content: "▼ ";
+}
+
+.permission-title,
+.session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-input {
+  max-height: 120px;
+  overflow: auto;
+  padding: 7px;
+  border-radius: 5px;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.elicitation-form {
+  display: grid;
+  gap: 8px;
+}
+
+.elicitation-question {
+  display: grid;
+  gap: 4px;
+}
+
+.elicitation-text {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.elicitation-options {
+  display: grid;
+  gap: 3px;
+}
+
+.elicitation-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.elicitation-option input {
+  margin: 0;
+}
+
+.elicitation-text-input {
+  padding: 4px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.elicitation-text-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.action-button {
+  min-width: 58px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 5px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  cursor: pointer;
+}
+
+.action-button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.action-button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.session-row {
+  padding: 6px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.session-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.session-meta {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.toast-log {
+  min-height: 20px;
+  padding: 0 8px 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}

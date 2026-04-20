@@ -1,0 +1,143 @@
+{
+  "name": "clawd-on-code",
+  "displayName": "Clawd",
+  "description": "An interactive Clawd coding pet for VS Code, with local and Remote-SSH agent state support.",
+  "version": "0.1.0",
+  "publisher": "clawd",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "clawd",
+    "pet",
+    "claude",
+    "codex",
+    "remote-ssh"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:clawd.petView",
+    "onCommand:clawd.open",
+    "onCommand:clawd.installIntegrations",
+    "onCommand:clawd.toggleDnd",
+    "onCommand:clawd.setTheme",
+    "onCommand:clawd.restartRuntime"
+  ],
+  "main": "./src/extension.js",
+  "scripts": {
+    "check": "node --check src/*.js media/*.js test/*.js",
+    "test": "node --test test/*.test.js",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "clawd",
+          "title": "Clawd",
+          "icon": "media/clawd-activity-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "clawd": [
+        {
+          "type": "webview",
+          "id": "clawd.petView",
+          "name": "Clawd",
+          "icon": "media/clawd-activity-icon.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "clawd.installIntegrations",
+          "when": "view == clawd.petView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "clawd.toggleDnd",
+          "when": "view == clawd.petView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "clawd.setTheme",
+          "when": "view == clawd.petView",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "clawd.open",
+        "title": "Open Clawd",
+        "category": "Clawd",
+        "icon": "$(heart)"
+      },
+      {
+        "command": "clawd.installIntegrations",
+        "title": "Install Agent Integrations",
+        "category": "Clawd",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "clawd.toggleDnd",
+        "title": "Toggle Do Not Disturb",
+        "category": "Clawd",
+        "icon": "$(bell-slash)"
+      },
+      {
+        "command": "clawd.setTheme",
+        "title": "Switch Character",
+        "category": "Clawd",
+        "icon": "$(replace)"
+      },
+      {
+        "command": "clawd.restartRuntime",
+        "title": "Restart Runtime",
+        "category": "Clawd",
+        "icon": "$(debug-restart)"
+      }
+    ],
+    "configuration": {
+      "title": "Clawd",
+      "properties": {
+        "clawd.theme": {
+          "type": "string",
+          "default": "clawd",
+          "enum": [
+            "clawd",
+            "calico"
+          ],
+          "description": "The Clawd pet theme shown in the sidebar."
+        },
+        "clawd.autoStartRuntime": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the Clawd state server when the extension activates."
+        },
+        "clawd.sound.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play Clawd notification sounds in the webview."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "dom-serializer": "2.0.0",
+    "htmlparser2": "10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@vscode/vsce": "^3.6.0"
+  }
+}
