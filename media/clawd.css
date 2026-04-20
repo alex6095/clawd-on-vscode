@@ -234,18 +234,22 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   display: grid;
   gap: 8px;
   padding: 9px;
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: transparent;
 }
 
 .permission-head,
 .session-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
   gap: 8px;
 }
 
 .agent-mark {
   flex: none;
+  box-sizing: border-box;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -259,10 +263,23 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   text-transform: uppercase;
 }
 
+.agent-mark.has-icon {
+  border: 1px solid var(--vscode-sideBar-border);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.agent-mark[data-agent="claude-code"] { background: #E8784D; color: #1f140f; }
+.agent-mark[data-agent="codex"]        { background: #3941FF; color: #FFFFFF; }
+.agent-mark[data-agent="gemini-cli"]   { background: #4285F4; color: #FFFFFF; }
+.agent-mark[data-agent="cursor-agent"] { background: #9B8AFB; color: #FFFFFF; }
+.agent-mark[data-agent="copilot-cli"]  { background: #2DBA4E; color: #FFFFFF; }
+.agent-mark[data-agent="opencode"]     { background: #A3A3A3; color: #111111; }
+
 .agent-icon {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
 }
 
@@ -270,13 +287,20 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   border-left-width: 3px;
   border-left-style: solid;
   border-left-color: transparent;
+  align-items: center;
 }
 
+.permission-card[data-agent="claude-code"],
 .session-row[data-agent="claude-code"] { border-left-color: #E8784D; }
+.permission-card[data-agent="codex"],
 .session-row[data-agent="codex"]        { border-left-color: #6B7AFF; }
+.permission-card[data-agent="gemini-cli"],
 .session-row[data-agent="gemini-cli"]   { border-left-color: #4285F4; }
+.permission-card[data-agent="cursor-agent"],
 .session-row[data-agent="cursor-agent"] { border-left-color: #9B8AFB; }
+.permission-card[data-agent="copilot-cli"],
 .session-row[data-agent="copilot-cli"]  { border-left-color: #2DBA4E; }
+.permission-card[data-agent="opencode"],
 .session-row[data-agent="opencode"]     { border-left-color: #A3A3A3; }
 
 .idle-group {
@@ -307,12 +331,81 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   content: "▼ ";
 }
 
+.permission-title-wrap {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
 .permission-title,
 .session-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.permission-title {
+  font-weight: 600;
+}
+
+.permission-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-body {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.permission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  overflow: hidden;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+}
+
+.meta-label {
+  flex: none;
+  padding: 2px 5px;
+  color: var(--vscode-descriptionForeground);
+  border-right: 1px solid var(--vscode-sideBar-border);
+}
+
+.meta-value {
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 6px;
+  color: var(--vscode-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-section-title {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-transform: uppercase;
 }
 
 .permission-input {
@@ -329,6 +422,153 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   word-break: break-word;
 }
 
+.permission-code,
+.permission-diff {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.permission-code.empty {
+  padding: 7px;
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-font-family);
+}
+
+.permission-code.nowrap .line-text {
+  white-space: pre;
+}
+
+.code-line.numbered,
+.diff-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.code-line:not(.numbered) .line-text {
+  display: block;
+  padding-left: 7px;
+}
+
+.line-no,
+.diff-prefix {
+  user-select: none;
+  min-width: 28px;
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+}
+
+.line-text,
+.diff-text {
+  min-width: 0;
+  padding: 0 7px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line.removed {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent);
+}
+
+.diff-line.added {
+  background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 15%, transparent);
+}
+
+.diff-line.removed .diff-prefix {
+  color: var(--vscode-errorForeground);
+}
+
+.diff-line.added .diff-prefix {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.diff-hunk-title {
+  padding: 3px 7px;
+  color: var(--vscode-descriptionForeground);
+  border-top: 1px solid var(--vscode-sideBar-border);
+  border-bottom: 1px solid var(--vscode-sideBar-border);
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+}
+
+.diff-hunk-title:first-child {
+  border-top: 0;
+}
+
+.permission-note {
+  padding: 6px 7px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.permission-note.warning {
+  border-color: var(--vscode-inputValidation-warningBorder);
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-warningBackground, var(--vscode-sideBar-background));
+}
+
+.permission-note.info {
+  border-color: var(--vscode-focusBorder);
+}
+
+.permission-list {
+  display: grid;
+  gap: 4px;
+}
+
+.permission-list-item {
+  padding: 5px 7px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.permission-raw {
+  min-width: 0;
+}
+
+.permission-raw > summary {
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-size: 11px;
+  user-select: none;
+}
+
+.permission-raw[open] > summary {
+  margin-bottom: 5px;
+}
+
+.escape-newline {
+  display: inline-grid;
+  place-items: center;
+  min-width: 13px;
+  height: 13px;
+  margin: 0 2px;
+  border: 1px solid var(--vscode-textLink-foreground);
+  border-radius: 3px;
+  color: var(--vscode-textLink-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
@@ -340,9 +580,89 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   gap: 8px;
 }
 
+.question-nav {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.question-tabs {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.question-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.question-tab,
+.question-nav-arrow {
+  flex: none;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.question-tab {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question-tab.active {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.question-tab.submit {
+  max-width: 76px;
+}
+
+.question-nav-arrow {
+  width: 24px;
+  padding: 2px 0;
+  border-color: var(--vscode-sideBar-border);
+}
+
+.question-nav-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.question-count {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .elicitation-question {
   display: grid;
-  gap: 4px;
+  gap: 5px;
+}
+
+.elicitation-header {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-sideBar-background);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .elicitation-text {
@@ -350,21 +670,123 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   font-size: 12px;
 }
 
+.elicitation-mode {
+  justify-self: start;
+  padding: 2px 6px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 5px;
+  color: var(--vscode-textLink-foreground);
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 10%, transparent);
+  font-size: 11px;
+  line-height: 15px;
+}
+
 .elicitation-options {
   display: grid;
-  gap: 3px;
+  gap: 5px;
 }
 
 .elicitation-option {
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  background: var(--vscode-sideBar-background);
   font-size: 12px;
   cursor: pointer;
 }
 
+.elicitation-option:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.elicitation-option:focus-within {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.elicitation-option.selected {
+  border-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.elicitation-option.selected .elicitation-option-description {
+  color: color-mix(in srgb, var(--vscode-button-foreground) 78%, transparent);
+}
+
 .elicitation-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.elicitation-option-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.elicitation-option-label {
+  display: flex;
+  gap: 5px;
+  font-weight: 600;
+}
+
+.elicitation-option-index {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+}
+
+.elicitation-option.selected .elicitation-option-index {
+  color: var(--vscode-button-foreground);
+}
+
+.elicitation-option-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.elicitation-option-description {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.elicitation-option-preview {
+  max-height: 72px;
+  overflow: auto;
+  margin-top: 2px;
+  padding: 5px;
+  border-radius: 4px;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: pre-wrap;
+}
+
+.elicitation-other {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.elicitation-other-label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
 }
 
 .elicitation-text-input {
@@ -381,6 +803,49 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   outline: 1px solid var(--vscode-focusBorder);
 }
 
+.elicitation-flow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.elicitation-submit-view {
+  display: grid;
+  gap: 8px;
+}
+
+.elicitation-answer-list {
+  display: grid;
+  gap: 5px;
+}
+
+.elicitation-answer {
+  display: grid;
+  gap: 3px;
+  padding: 6px 7px;
+  border: 1px solid var(--vscode-sideBar-border);
+  border-radius: 5px;
+  background: var(--vscode-sideBar-background);
+  cursor: pointer;
+}
+
+.elicitation-answer:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.elicitation-answer-question {
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.elicitation-answer-value {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
 .action-button {
   min-width: 58px;
   min-height: 26px;
@@ -392,8 +857,22 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   cursor: pointer;
 }
 
+.action-button.compact {
+  min-width: 42px;
+}
+
 .action-button.secondary {
   color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+.action-button.suggested {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.action-button.danger {
+  color: var(--vscode-errorForeground);
   background: var(--vscode-button-secondaryBackground);
 }
 

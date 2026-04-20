@@ -32,6 +32,8 @@ function shouldBypassOpencodeBubble(ctx) {
 
 // Truncate large string values in objects (recursive) — bubble only needs a preview
 const PREVIEW_MAX = 500;
+const FILE_INPUT_PREVIEW_MAX = 12000;
+const PLAN_INPUT_PREVIEW_MAX = 24000;
 const MAX_PERMISSION_SUGGESTIONS = 20;
 const MAX_ELICITATION_QUESTIONS = 5;
 const MAX_ELICITATION_OPTIONS = 5;
@@ -50,6 +52,39 @@ function truncateDeep(obj, depth) {
   }
   return typeof obj === "string" && obj.length > PREVIEW_MAX
     ? obj.slice(0, PREVIEW_MAX) + "\u2026" : obj;
+}
+
+function truncateString(value, max) {
+  if (typeof value !== "string") return value;
+  return value.length > max ? `${value.slice(0, Math.max(0, max - 18))}\n... [truncated]` : value;
+}
+
+function normalizePermissionToolInput(rawInput, toolName) {
+  const input = truncateDeep(rawInput);
+  if (!input || typeof input !== "object" || !rawInput || typeof rawInput !== "object") return input;
+
+  if (toolName === "Write") {
+    input.content = truncateString(rawInput.content, FILE_INPUT_PREVIEW_MAX);
+  } else if (toolName === "Edit") {
+    input.old_string = truncateString(rawInput.old_string, FILE_INPUT_PREVIEW_MAX);
+    input.new_string = truncateString(rawInput.new_string, FILE_INPUT_PREVIEW_MAX);
+    if (Array.isArray(rawInput.edits)) {
+      input.edits = rawInput.edits.slice(0, 20).map((edit) => {
+        if (!edit || typeof edit !== "object") return edit;
+        return {
+          ...edit,
+          old_string: truncateString(edit.old_string, FILE_INPUT_PREVIEW_MAX),
+          new_string: truncateString(edit.new_string, FILE_INPUT_PREVIEW_MAX),
+        };
+      });
+    }
+  } else if (toolName === "NotebookEdit") {
+    input.new_source = truncateString(rawInput.new_source, FILE_INPUT_PREVIEW_MAX);
+  } else if (toolName === "ExitPlanMode") {
+    input.plan = truncateString(rawInput.plan, PLAN_INPUT_PREVIEW_MAX);
+  }
+
+  return input;
 }
 
 function clampPreviewText(value, max) {
@@ -567,7 +602,7 @@ function startHttpServer() {
 
           const toolName = typeof data.tool_name === "string" ? data.tool_name : "Unknown";
           const rawInput = data.tool_input && typeof data.tool_input === "object" ? data.tool_input : {};
-          const toolInput = truncateDeep(rawInput);
+          const toolInput = normalizePermissionToolInput(rawInput, toolName);
           const sessionId = data.session_id || "default";
           // Tag the permEntry with the source agent. Clawd's HTTP permission
           // path is shared between Claude Code and codebuddy (both set

@@ -47,6 +47,70 @@ function serializeInput(input) {
   }
 }
 
+const FILE_PREVIEW_MAX_BYTES = 12000;
+
+function readFilePreview(filePath, maxBytes = FILE_PREVIEW_MAX_BYTES) {
+  if (!filePath || typeof filePath !== "string") return null;
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return { exists: true, isFile: false, size: stat.size };
+
+    const byteLength = Math.min(stat.size, maxBytes);
+    const buffer = Buffer.alloc(byteLength);
+    const fd = fs.openSync(filePath, "r");
+    try {
+      fs.readSync(fd, buffer, 0, byteLength, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    return {
+      exists: true,
+      isFile: true,
+      size: stat.size,
+      truncated: stat.size > maxBytes,
+      content: buffer.toString("utf8"),
+    };
+  } catch (err) {
+    if (err && err.code === "ENOENT") return { exists: false };
+    return { exists: null, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+function normalizeResolvedSuggestion(suggestion) {
+  if (!suggestion || typeof suggestion !== "object") return null;
+  switch (suggestion.type) {
+    case "addRules":
+    case "replaceRules":
+    case "removeRules": {
+      const rules = Array.isArray(suggestion.rules)
+        ? suggestion.rules
+        : [{ toolName: suggestion.toolName, ruleContent: suggestion.ruleContent }];
+      return {
+        type: suggestion.type,
+        destination: suggestion.destination || "localSettings",
+        behavior: suggestion.behavior || "allow",
+        rules: rules.filter((rule) => rule && typeof rule === "object"),
+      };
+    }
+    case "setMode":
+      return {
+        type: "setMode",
+        mode: suggestion.mode,
+        destination: suggestion.destination || "localSettings",
+      };
+    case "addDirectories":
+    case "removeDirectories":
+      return {
+        type: suggestion.type,
+        directories: Array.isArray(suggestion.directories) ? suggestion.directories.filter(Boolean) : [],
+        destination: suggestion.destination || "localSettings",
+      };
+    default:
+      return null;
+  }
+}
+
 class ClawdRuntime {
   constructor(context, output) {
     this.context = context;
@@ -406,11 +470,15 @@ class ClawdRuntime {
     const isElicitation = !!entry.isElicitation;
     const toolInput = entry.toolInput && typeof entry.toolInput === "object" ? entry.toolInput : {};
     const questions = isElicitation && Array.isArray(toolInput.questions) ? toolInput.questions : null;
+    const previewFilePath = ["Write", "Edit", "NotebookEdit"].includes(entry.toolName)
+      ? toolInput.file_path || toolInput.notebook_path
+      : null;
     return {
       id: entry._clawdId,
       agentId: entry.agentId || "claude-code",
       sessionId: entry.sessionId || "default",
       toolName: entry.toolName || "Unknown",
+      toolInput,
       inputPreview: serializeInput(entry.toolInput),
       suggestions: Array.isArray(entry.suggestions) ? entry.suggestions : [],
       isElicitation,
@@ -418,6 +486,7 @@ class ClawdRuntime {
       isCodexNotify: !!entry.isCodexNotify,
       canAlways: !!(entry.isOpencode && Array.isArray(entry.opencodeAlwaysCandidates) && entry.opencodeAlwaysCandidates.length),
       questions,
+      preview: previewFilePath ? { file: readFilePreview(previewFilePath) } : null,
       createdAt: entry.createdAt || Date.now(),
     };
   }
@@ -450,22 +519,7 @@ class ClawdRuntime {
         this.resolvePermissionEntry(entry, "deny", "Invalid suggestion index");
         return;
       }
-      if (suggestion.type === "addRules") {
-        entry.resolvedSuggestion = {
-          type: "addRules",
-          destination: suggestion.destination || "localSettings",
-          behavior: suggestion.behavior || "allow",
-          rules: Array.isArray(suggestion.rules)
-            ? suggestion.rules
-            : [{ toolName: suggestion.toolName, ruleContent: suggestion.ruleContent }],
-        };
-      } else if (suggestion.type === "setMode") {
-        entry.resolvedSuggestion = {
-          type: "setMode",
-          mode: suggestion.mode,
-          destination: suggestion.destination || "localSettings",
-        };
-      }
+      entry.resolvedSuggestion = normalizeResolvedSuggestion(suggestion);
       this.resolvePermissionEntry(entry, "allow");
       return;
     }
