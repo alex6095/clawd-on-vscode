@@ -178,7 +178,7 @@ class ClawdRuntime {
   createServerContext() {
     const runtime = this;
     return {
-      get manageClaudeHooksAutomatically() { return false; },
+      get manageClaudeHooksAutomatically() { return true; },
       get autoStartWithClaude() { return false; },
       get doNotDisturb() { return runtime.doNotDisturb; },
       get hideBubbles() { return runtime.hideBubbles; },
@@ -197,7 +197,7 @@ class ClawdRuntime {
       showPermissionBubble: (entry) => this.showPermissionBubble(entry),
       replyOpencodePermission: (...args) => this.replyOpencodePermission(...args),
       permLog: (message) => this.log(`permission: ${message}`),
-      syncClawdHooksImpl: () => {},
+      syncClawdHooksImpl: ({ port, autoStart }) => this.syncClaudeHooks(port, autoStart),
       syncGeminiHooksImpl: () => {},
       syncCursorHooksImpl: () => {},
       syncCodeBuddyHooksImpl: () => {},
@@ -607,7 +607,7 @@ class ClawdRuntime {
       }
     };
 
-    run("Claude Code", () => require(path.join(VENDOR_HOOKS_DIR, "install")).registerHooks({ silent: true, port }));
+    run("Claude Code", () => this.syncClaudeHooks(port, false));
     run("Gemini CLI", () => require(path.join(VENDOR_HOOKS_DIR, "gemini-install")).registerGeminiHooks({ silent: true }));
     run("Cursor Agent", () => require(path.join(VENDOR_HOOKS_DIR, "cursor-install")).registerCursorHooks({ silent: true }));
     run("CodeBuddy", () => require(path.join(VENDOR_HOOKS_DIR, "codebuddy-install")).registerCodeBuddyHooks({ silent: true }));
@@ -618,6 +618,18 @@ class ClawdRuntime {
     this.log(`${message}\n${results.join("\n")}`);
     this.viewPost("install-result", { message, details: results });
     return { message, details: results };
+  }
+
+  syncClaudeHooks(port, autoStart = false) {
+    const result = require(path.join(VENDOR_HOOKS_DIR, "install")).registerHooks({
+      silent: true,
+      port,
+      autoStart: !!autoStart,
+    });
+    if (result.added > 0 || result.updated > 0 || result.removed > 0) {
+      this.log(`Claude Code hooks synced on port ${port}: added=${result.added}, updated=${result.updated}, removed=${result.removed}`);
+    }
+    return result;
   }
 
   async focusBestTerminal() {

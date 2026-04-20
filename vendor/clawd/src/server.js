@@ -262,10 +262,11 @@ function sendStateHealthResponse(res) {
   res.end(body);
 }
 
-const HOOK_MARKER = "clawd-hook.js";
 const SETTINGS_FILENAME = "settings.json";
 // Watch ~/.claude/ directory for settings.json overwrites (e.g. CC-Switch)
-// that wipe our hooks. Re-register when hooks disappear.
+// that wipe our hooks or leave stale hook paths / PermissionRequest ports.
+// Re-run the idempotent sync whenever settings.json changes so extension
+// updates, runtime port drift, and external settings rewrites all converge.
 // Watch the directory (not the file) because atomic rename replaces the inode
 // and fs.watch on the old file silently stops firing on Windows.
 function stopClaudeSettingsWatcher() {
@@ -285,7 +286,6 @@ function stopClaudeSettingsWatcher() {
 function startClaudeSettingsWatcher() {
   if (settingsWatcher) return false;
   const settingsDir = getClaudeSettingsDir();
-  const settingsPath = getClaudeSettingsPath();
   try {
     settingsWatcher = fsApi.watch(settingsDir, (_event, filename) => {
       if (filename && filename !== SETTINGS_FILENAME) return;
@@ -294,14 +294,8 @@ function startClaudeSettingsWatcher() {
         settingsWatchDebounceTimer = null;
         // Rate-limit: don't re-sync within 5s to avoid write wars with CC-Switch
         if (nowFn() - settingsWatchLastSyncTime < settingsWatchRateLimitMs) return;
-        try {
-          const raw = fsApi.readFileSync(settingsPath, "utf-8");
-          if (!raw.includes(HOOK_MARKER)) {
-            console.log("Clawd: hooks wiped from settings.json — re-registering");
-            settingsWatchLastSyncTime = nowFn();
-            syncClawdHooks();
-          }
-        } catch {}
+        settingsWatchLastSyncTime = nowFn();
+        syncClawdHooks();
       }, settingsWatchDebounceMs);
     });
     if (settingsWatcher && typeof settingsWatcher.on === "function") settingsWatcher.on("error", (err) => {

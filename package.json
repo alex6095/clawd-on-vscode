@@ -2,7 +2,7 @@
   "name": "clawd-on-vscode",
   "displayName": "Clawd on VS Code",
   "description": "A whimsical Clawd sidebar pet that reacts to coding-agent activity in local and Remote-SSH VS Code workspaces.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "resources/icons/app_icon.png",
   "author": {
     "name": "alex6095",
