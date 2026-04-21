@@ -2,7 +2,7 @@
   "name": "clawd-on-vscode",
   "displayName": "Clawd on VS Code",
   "description": "A whimsical Clawd sidebar pet that reacts to coding-agent activity in local and Remote-SSH VS Code workspaces.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icon": "resources/icons/app_icon.png",
   "author": {
     "name": "alex6095",
@@ -51,7 +51,11 @@
     "onCommand:clawd.installIntegrations",
     "onCommand:clawd.toggleDnd",
     "onCommand:clawd.setTheme",
-    "onCommand:clawd.restartRuntime"
+    "onCommand:clawd.restartRuntime",
+    "onCommand:clawd.pauseRuntime",
+    "onCommand:clawd.resumeRuntime",
+    "onCommand:clawd.disableIntegrations",
+    "onCommand:clawd.enableIntegrations"
   ],
   "main": "./src/extension.js",
   "scripts": {
@@ -83,18 +87,38 @@
       "view/title": [
         {
           "command": "clawd.installIntegrations",
-          "when": "view == clawd.petView",
+          "when": "view == clawd.petView && clawd.integrations.enabled",
           "group": "navigation@1"
+        },
+        {
+          "command": "clawd.disableIntegrations",
+          "when": "view == clawd.petView && clawd.integrations.enabled",
+          "group": "navigation@2"
+        },
+        {
+          "command": "clawd.enableIntegrations",
+          "when": "view == clawd.petView && !clawd.integrations.enabled",
+          "group": "navigation@2"
         },
         {
           "command": "clawd.toggleDnd",
           "when": "view == clawd.petView",
-          "group": "navigation@2"
+          "group": "navigation@3"
+        },
+        {
+          "command": "clawd.pauseRuntime",
+          "when": "view == clawd.petView && !clawd.runtime.paused",
+          "group": "navigation@4"
+        },
+        {
+          "command": "clawd.resumeRuntime",
+          "when": "view == clawd.petView && clawd.runtime.paused",
+          "group": "navigation@4"
         },
         {
           "command": "clawd.setTheme",
           "when": "view == clawd.petView",
-          "group": "navigation@3"
+          "group": "navigation@5"
         }
       ]
     },
@@ -128,6 +152,30 @@
         "title": "Restart Runtime",
         "category": "Clawd",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "clawd.pauseRuntime",
+        "title": "Pause Runtime",
+        "category": "Clawd",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "clawd.resumeRuntime",
+        "title": "Resume Runtime",
+        "category": "Clawd",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "clawd.disableIntegrations",
+        "title": "Disable Agent Integrations",
+        "category": "Clawd",
+        "icon": "$(plug-filled)"
+      },
+      {
+        "command": "clawd.enableIntegrations",
+        "title": "Enable Agent Integrations",
+        "category": "Clawd",
+        "icon": "$(plug)"
       }
     ],
     "configuration": {
@@ -146,6 +194,16 @@
           "type": "boolean",
           "default": true,
           "description": "Start the Clawd state server when the extension activates."
+        },
+        "clawd.runtime.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow Clawd to run its local state server and log monitors."
+        },
+        "clawd.integrations.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow Clawd agent hooks/plugins to be installed and automatically synced."
         },
         "clawd.sound.enabled": {
           "type": "boolean",

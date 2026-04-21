@@ -41,10 +41,31 @@ async function activate(context) {
     vscode.commands.registerCommand("clawd.restartRuntime", async () => {
       await runtime.restart();
       vscode.window.showInformationMessage("Clawd runtime restarted.");
+    }),
+    vscode.commands.registerCommand("clawd.pauseRuntime", async () => {
+      const result = await runtime.pause();
+      vscode.window.showInformationMessage(result.message);
+    }),
+    vscode.commands.registerCommand("clawd.resumeRuntime", async () => {
+      const result = await runtime.resume();
+      vscode.window.showInformationMessage(result.message);
+    }),
+    vscode.commands.registerCommand("clawd.disableIntegrations", async () => {
+      const result = await runtime.disableIntegrations();
+      vscode.window.showInformationMessage(result.message);
+    }),
+    vscode.commands.registerCommand("clawd.enableIntegrations", async () => {
+      const result = await runtime.enableIntegrations();
+      vscode.window.showInformationMessage(result.message);
     })
   );
 
-  if (vscode.workspace.getConfiguration("clawd").get("autoStartRuntime", true)) {
+  await runtime.updateContextKeys();
+
+  if (
+    vscode.workspace.getConfiguration("clawd").get("autoStartRuntime", true)
+    && runtime.isRuntimeEnabled()
+  ) {
     await runtime.start();
   }
 }

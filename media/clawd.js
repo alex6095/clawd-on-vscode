@@ -10,6 +10,8 @@ const stateLabel = document.getElementById("stateLabel");
 const serverLabel = document.getElementById("serverLabel");
 const toastLog = document.getElementById("toastLog");
 const installBtn = document.getElementById("installBtn");
+const disableIntegrationsBtn = document.getElementById("disableIntegrationsBtn");
+const runtimeBtn = document.getElementById("runtimeBtn");
 const dndBtn = document.getElementById("dndBtn");
 const themeBtn = document.getElementById("themeBtn");
 const restartBtn = document.getElementById("restartBtn");
@@ -24,6 +26,8 @@ let soundMap = {};
 let permissions = new Map();
 let elicitationStates = new Map();
 let sessions = [];
+let runtimePaused = false;
+let integrationsEnabled = true;
 let reactionTimer = null;
 let tracking = null;
 let layerTracking = null;
@@ -54,8 +58,27 @@ function fileUri(file) {
 }
 
 function setStatus(state, port) {
-  stateLabel.textContent = state || "idle";
+  stateLabel.textContent = runtimePaused ? "Paused" : (state || "idle");
   if (port !== undefined) serverLabel.textContent = port ? `:${port}` : "off";
+}
+
+function updateRuntimeButton() {
+  if (!runtimeBtn) return;
+  const label = runtimePaused ? "Resume Clawd runtime" : "Pause Clawd runtime";
+  runtimeBtn.title = label;
+  runtimeBtn.setAttribute("aria-label", label);
+}
+
+function updateInstallButton() {
+  if (!installBtn) return;
+  const label = integrationsEnabled ? "Install/sync agent integrations" : "Enable agent integrations";
+  installBtn.title = label;
+  installBtn.setAttribute("aria-label", label);
+  if (disableIntegrationsBtn) {
+    disableIntegrationsBtn.hidden = !integrationsEnabled;
+    disableIntegrationsBtn.title = "Disable agent integrations";
+    disableIntegrationsBtn.setAttribute("aria-label", "Disable agent integrations");
+  }
 }
 
 function showToast(message) {
@@ -1576,15 +1599,21 @@ function applyInit(payload) {
   themes = payload.themes || [];
   themeId = payload.themeId || themeId;
   soundMap = config.soundMap || {};
-  currentState = payload.state || "idle";
+  runtimePaused = !!payload.paused;
+  integrationsEnabled = payload.integrationsEnabled !== false;
+  currentState = runtimePaused ? "paused" : (payload.state || "idle");
   currentSvg = payload.svg || (config.idleFollowSvg || "");
-  sessions = payload.sessions || [];
-  permissions = new Map((payload.permissions || []).map((permission) => [permission.id, permission]));
+  sessions = runtimePaused ? [] : (payload.sessions || []);
+  permissions = new Map((runtimePaused ? [] : (payload.permissions || [])).map((permission) => [permission.id, permission]));
   for (const id of [...elicitationStates.keys()]) {
     if (!permissions.has(id)) elicitationStates.delete(id);
   }
   document.body.classList.toggle("is-dnd", !!payload.dnd);
+  document.body.classList.toggle("is-runtime-paused", runtimePaused);
+  document.body.classList.toggle("is-integrations-disabled", !integrationsEnabled);
   updateThemeButton();
+  updateRuntimeButton();
+  updateInstallButton();
   setStatus(currentState, payload.serverPort);
   renderPet(currentSvg, currentState, { force: true });
   renderSessions();
@@ -1606,6 +1635,7 @@ function handleMessage(event) {
       renderPet(currentSvg || config.idleFollowSvg, currentState, { force: true });
       break;
     case "state-change":
+      if (runtimePaused) break;
       currentState = payload.state || "idle";
       currentSvg = payload.svg || currentSvg;
       sessions = payload.sessions || sessions;
@@ -1636,9 +1666,13 @@ function handleMessage(event) {
   }
 }
 
-installBtn.addEventListener("click", () => post("install-integrations"));
+installBtn.addEventListener("click", () => {
+  post(integrationsEnabled ? "install-integrations" : "enable-integrations");
+});
+disableIntegrationsBtn.addEventListener("click", () => post("disable-integrations"));
 dndBtn.addEventListener("click", () => post("toggle-dnd"));
 restartBtn.addEventListener("click", () => post("restart-runtime"));
+runtimeBtn.addEventListener("click", () => post(runtimePaused ? "resume-runtime" : "pause-runtime"));
 themeBtn.addEventListener("click", () => {
   const next = getNextTheme();
   if (next) post("set-theme", { themeId: next.id });

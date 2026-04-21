@@ -22,6 +22,25 @@ const CODEBUDDY_HOOK_EVENTS = [
   "PreCompact",
 ];
 
+function isClawdPermissionUrl(url) {
+  if (typeof url !== "string" || !url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:"
+      && parsed.hostname === "127.0.0.1"
+      && parsed.pathname === HTTP_MARKER;
+  } catch {
+    return false;
+  }
+}
+
+function isClawdPermissionHook(entry) {
+  return !!entry
+    && typeof entry === "object"
+    && entry.type === "http"
+    && isClawdPermissionUrl(entry.url);
+}
+
 /**
  * Register Clawd hooks into ~/.codebuddy/settings.json
  * Uses Claude Code-compatible nested format: { matcher, hooks: [{ type, command }] }
@@ -169,7 +188,93 @@ function registerCodeBuddyHooks(options = {}) {
   return { added, skipped, updated };
 }
 
-module.exports = { registerCodeBuddyHooks, CODEBUDDY_HOOK_EVENTS };
+function unregisterCodeBuddyHooks(options = {}) {
+  const settingsPath = options.settingsPath || path.join(os.homedir(), ".codebuddy", "settings.json");
+  let settings = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return { removed: 0, changed: false };
+    throw new Error(`Failed to read settings.json: ${err.message}`);
+  }
+
+  if (!settings.hooks || typeof settings.hooks !== "object") {
+    return { removed: 0, changed: false };
+  }
+
+  let removed = 0;
+  let changed = false;
+  for (const [event, entries] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(entries)) continue;
+    const nextEntries = [];
+
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") {
+        nextEntries.push(entry);
+        continue;
+      }
+
+      if (typeof entry.command === "string" && entry.command.includes(MARKER)) {
+        removed++;
+        changed = true;
+        continue;
+      }
+
+      if (isClawdPermissionHook(entry)) {
+        removed++;
+        changed = true;
+        continue;
+      }
+
+      if (!Array.isArray(entry.hooks)) {
+        nextEntries.push(entry);
+        continue;
+      }
+
+      const nextHooks = entry.hooks.filter((hook) => {
+        const commandMatches = hook && typeof hook.command === "string" && hook.command.includes(MARKER);
+        const permissionMatches = isClawdPermissionHook(hook);
+        if (!commandMatches && !permissionMatches) return true;
+        removed++;
+        changed = true;
+        return false;
+      });
+
+      if (nextHooks.length === entry.hooks.length) {
+        nextEntries.push(entry);
+        continue;
+      }
+
+      if (nextHooks.length === 0 && typeof entry.command !== "string" && entry.type !== "http") {
+        continue;
+      }
+
+      nextEntries.push({ ...entry, hooks: nextHooks });
+    }
+
+    if (nextEntries.length > 0) settings.hooks[event] = nextEntries;
+    else delete settings.hooks[event];
+  }
+
+  if (changed) writeJsonAtomic(settingsPath, settings);
+
+  if (!options.silent) {
+    console.log(`Clawd CodeBuddy hooks removed from ${settingsPath}`);
+    console.log(`  Removed: ${removed}`);
+  }
+
+  return { removed, changed };
+}
+
+module.exports = {
+  registerCodeBuddyHooks,
+  unregisterCodeBuddyHooks,
+  CODEBUDDY_HOOK_EVENTS,
+  __test: {
+    isClawdPermissionHook,
+    isClawdPermissionUrl,
+  },
+};
 
 if (require.main === module) {
   try {

@@ -77,6 +77,26 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
   display: none;
 }
 
+#runtimeBtn .runtime-play {
+  display: none;
+}
+
+.is-runtime-paused #runtimeBtn .runtime-pause {
+  display: none;
+}
+
+.is-runtime-paused #runtimeBtn .runtime-play {
+  display: block;
+}
+
+.is-integrations-disabled #installBtn {
+  color: var(--vscode-testing-iconUnset, var(--vscode-icon-foreground));
+}
+
+.is-integrations-disabled #disableIntegrationsBtn {
+  display: none;
+}
+
 .is-dnd #dndBtn .bell-on {
   display: none;
 }

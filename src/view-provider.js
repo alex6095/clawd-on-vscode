@@ -54,11 +54,23 @@ class ClawdViewProvider {
       case "install-integrations":
         await this.runtime.installIntegrations();
         break;
+      case "disable-integrations":
+        await this.runtime.disableIntegrations();
+        break;
+      case "enable-integrations":
+        await this.runtime.enableIntegrations();
+        break;
       case "set-theme":
         if (message.themeId) await this.runtime.setTheme(message.themeId);
         break;
       case "restart-runtime":
         await this.runtime.restart();
+        break;
+      case "pause-runtime":
+        await this.runtime.pause();
+        break;
+      case "resume-runtime":
+        await this.runtime.resume();
         break;
       default:
         break;
@@ -85,6 +97,21 @@ class ClawdViewProvider {
       <button class="icon-button" id="installBtn" title="Install agent integrations" aria-label="Install agent integrations">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <path fill="currentColor" d="M11 1h-1v3H6V1H5v3H4v4l2 2v5h1v-5h2v5h1v-5l2-2V4h-1z"/>
+        </svg>
+      </button>
+      <button class="icon-button" id="disableIntegrationsBtn" title="Disable agent integrations" aria-label="Disable agent integrations">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M11 1h-1v3H6V1H5v3H4v4l2 2v5h1v-5h2v5h1v-5l2-2V4h-1z"/>
+          <path stroke="var(--vscode-sideBar-background,#1e1e1e)" stroke-width="3" d="M2.5 1.5l12 12" opacity="0.9"/>
+          <path stroke="currentColor" stroke-width="1.5" d="M2 2l12 12"/>
+        </svg>
+      </button>
+      <button class="icon-button" id="runtimeBtn" title="Pause Clawd runtime" aria-label="Pause Clawd runtime">
+        <svg class="icon runtime-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M5 3h2v10H5zm4 0h2v10H9z"/>
+        </svg>
+        <svg class="icon runtime-play" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M5 3.2v9.6L12.5 8z"/>
         </svg>
       </button>
       <button class="icon-button" id="dndBtn" title="Toggle Do Not Disturb" aria-label="Toggle Do Not Disturb">

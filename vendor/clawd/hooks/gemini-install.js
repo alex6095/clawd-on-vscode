@@ -109,7 +109,46 @@ function registerGeminiHooks(options = {}) {
   return { added, skipped, updated };
 }
 
-module.exports = { registerGeminiHooks, GEMINI_HOOK_EVENTS };
+function unregisterGeminiHooks(options = {}) {
+  const settingsPath = options.settingsPath || path.join(os.homedir(), ".gemini", "settings.json");
+  let settings = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return { removed: 0, changed: false };
+    throw new Error(`Failed to read settings.json: ${err.message}`);
+  }
+
+  if (!settings.hooks || typeof settings.hooks !== "object") {
+    return { removed: 0, changed: false };
+  }
+
+  let removed = 0;
+  let changed = false;
+  for (const [event, entries] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(entries)) continue;
+    const next = entries.filter((entry) => {
+      if (!entry || typeof entry !== "object" || typeof entry.command !== "string") return true;
+      if (!entry.command.includes(MARKER)) return true;
+      removed++;
+      changed = true;
+      return false;
+    });
+    if (next.length > 0) settings.hooks[event] = next;
+    else delete settings.hooks[event];
+  }
+
+  if (changed) writeJsonAtomic(settingsPath, settings);
+
+  if (!options.silent) {
+    console.log(`Clawd Gemini hooks removed from ${settingsPath}`);
+    console.log(`  Removed: ${removed}`);
+  }
+
+  return { removed, changed };
+}
+
+module.exports = { registerGeminiHooks, unregisterGeminiHooks, GEMINI_HOOK_EVENTS };
 
 if (require.main === module) {
   try {

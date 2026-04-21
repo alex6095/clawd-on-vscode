@@ -114,6 +114,38 @@ function injectHooksIntoFile(filePath, options = {}) {
   return { added, skipped, updated, created };
 }
 
+function removeHooksFromFile(filePath) {
+  let settings = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return { removed: 0, changed: false };
+    throw new Error(`Failed to read ${path.basename(filePath)}: ${err.message}`);
+  }
+
+  if (!settings.hooks || typeof settings.hooks !== "object") {
+    return { removed: 0, changed: false };
+  }
+
+  let removed = 0;
+  let changed = false;
+  for (const [event, entries] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(entries)) continue;
+    const next = entries.filter((entry) => {
+      if (!entry || typeof entry !== "object" || typeof entry.command !== "string") return true;
+      if (!entry.command.includes(MARKER)) return true;
+      removed++;
+      changed = true;
+      return false;
+    });
+    if (next.length > 0) settings.hooks[event] = next;
+    else delete settings.hooks[event];
+  }
+
+  if (changed) writeJsonAtomic(filePath, settings);
+  return { removed, changed };
+}
+
 function getHookScriptPath() {
   let hookScript = path.resolve(__dirname, "kiro-hook.js").replace(/\\/g, "/");
   hookScript = hookScript.replace("app.asar/", "app.asar.unpacked/");
@@ -308,13 +340,64 @@ function registerKiroHooks(options = {}) {
   return { added: totalAdded, skipped: totalSkipped, updated: totalUpdated, files };
 }
 
+function unregisterKiroHooks(options = {}) {
+  const homeDir = options.homeDir || os.homedir();
+  const agentsDir = options.agentsDir || path.join(homeDir, ".kiro", "agents");
+
+  if (!fs.existsSync(agentsDir)) {
+    if (!options.silent) console.log("Clawd: ~/.kiro/ not found — skipping Kiro hook removal");
+    return { removed: 0, changed: false, files: [] };
+  }
+
+  let entries;
+  try {
+    entries = fs.readdirSync(agentsDir);
+  } catch {
+    entries = [];
+  }
+
+  let totalRemoved = 0;
+  let changed = false;
+  const files = [];
+  const jsonFiles = entries.filter(f =>
+    f.endsWith(".json") && !f.includes(".example") && f !== `${BUILTIN_DEFAULT_AGENT}.json`
+  );
+
+  for (const file of jsonFiles) {
+    const filePath = path.join(agentsDir, file);
+    try {
+      const result = removeHooksFromFile(filePath);
+      totalRemoved += result.removed;
+      if (result.changed) {
+        changed = true;
+        files.push(file);
+      }
+    } catch (err) {
+      if (!options.silent) console.warn(`Clawd: failed to process ${file}: ${err.message}`);
+    }
+  }
+
+  if (!options.silent) {
+    if (files.length > 0) {
+      console.log(`Clawd: Kiro hooks removed from ${files.length} agent config(s): ${files.join(", ")}`);
+      console.log(`  Removed: ${totalRemoved}`);
+    } else {
+      console.log("Clawd: no Kiro hooks found");
+    }
+  }
+
+  return { removed: totalRemoved, changed, files };
+}
+
 module.exports = {
   registerKiroHooks,
+  unregisterKiroHooks,
   KIRO_HOOK_EVENTS,
   __test: {
     generateClawdTemplateFromBuiltin,
     getKiroCliCandidates,
     injectHooksIntoFile,
+    removeHooksFromFile,
     syncClawdAgentFromBuiltin,
   },
 };

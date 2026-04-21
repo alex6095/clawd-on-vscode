@@ -137,16 +137,63 @@ class ClawdRuntime {
     if (this.output) this.output.appendLine(`[Clawd] ${message}`);
   }
 
-  async start() {
+  getConfig() {
+    return vscode.workspace.getConfiguration("clawd");
+  }
+
+  isRuntimeEnabled() {
+    return this.getConfig().get("runtime.enabled", true) !== false;
+  }
+
+  areIntegrationsEnabled() {
+    return this.getConfig().get("integrations.enabled", true) !== false;
+  }
+
+  async setRuntimeEnabled(enabled) {
+    await this.getConfig().update("runtime.enabled", !!enabled, vscode.ConfigurationTarget.Global);
+    await this.updateContextKeys();
+  }
+
+  async setIntegrationsEnabled(enabled) {
+    await this.getConfig().update("integrations.enabled", !!enabled, vscode.ConfigurationTarget.Global);
+    await this.updateContextKeys();
+  }
+
+  async updateContextKeys() {
+    try {
+      await vscode.commands.executeCommand("setContext", "clawd.runtime.paused", !this.isRuntimeEnabled());
+      await vscode.commands.executeCommand("setContext", "clawd.integrations.enabled", this.areIntegrationsEnabled());
+    } catch {}
+  }
+
+  ensureThemeReady() {
+    const userData = this.context.globalStorageUri.fsPath;
+    fs.mkdirSync(userData, { recursive: true });
+    themeLoader.init(VENDOR_SRC_DIR, userData);
+    this.activeTheme = this.loadConfiguredTheme();
+    if (!this.currentSvg && this.activeTheme && this.activeTheme.states && this.activeTheme.states.idle) {
+      this.currentSvg = this.activeTheme.states.idle[0];
+    }
+  }
+
+  async start(options = {}) {
+    if (options.force) await this.setRuntimeEnabled(true);
+    await this.updateContextKeys();
+
+    if (!this.isRuntimeEnabled()) {
+      this.disposeRuntime();
+      this.ensureThemeReady();
+      this.currentState = "paused";
+      this.pushSnapshot();
+      return;
+    }
+
     if (this.started) {
       this.pushSnapshot();
       return;
     }
 
-    const userData = this.context.globalStorageUri.fsPath;
-    fs.mkdirSync(userData, { recursive: true });
-    themeLoader.init(VENDOR_SRC_DIR, userData);
-    this.activeTheme = this.loadConfiguredTheme();
+    this.ensureThemeReady();
 
     this.state = initState(this.createStateContext());
     this.server = initServer(this.createServerContext());
@@ -161,12 +208,31 @@ class ClawdRuntime {
   }
 
   async restart() {
+    if (!this.isRuntimeEnabled()) await this.setRuntimeEnabled(true);
     this.disposeRuntime();
     this.started = false;
-    await this.start();
+    await this.start({ force: true });
+  }
+
+  async pause() {
+    await this.setRuntimeEnabled(false);
+    this.disposeRuntime();
+    this.started = false;
+    this.ensureThemeReady();
+    this.currentState = "paused";
+    this.pushSnapshot();
+    this.log("runtime paused");
+    return { message: "Clawd runtime paused." };
+  }
+
+  async resume() {
+    await this.setRuntimeEnabled(true);
+    await this.start({ force: true });
+    return { message: "Clawd runtime resumed." };
   }
 
   disposeRuntime() {
+    this.clearPendingPermissionsForShutdown();
     try { if (this.codexMonitor) this.codexMonitor.stop(); } catch {}
     try { if (this.geminiMonitor) this.geminiMonitor.stop(); } catch {}
     try { if (this.state) this.state.cleanup(); } catch {}
@@ -176,6 +242,21 @@ class ClawdRuntime {
     this.state = null;
     this.server = null;
     this.pendingPermissions = [];
+  }
+
+  clearPendingPermissionsForShutdown() {
+    for (const entry of [...this.pendingPermissions]) {
+      if (!entry) continue;
+      if (entry._clawdId) this.viewPost("permission-hide", { id: entry._clawdId });
+      if (entry.isCodexNotify || entry.isOpencode) continue;
+      const { res, abortHandler } = entry;
+      try {
+        if (res && abortHandler) res.removeListener("close", abortHandler);
+      } catch {}
+      try {
+        if (res && !res.writableEnded && !res.destroyed) res.destroy();
+      } catch {}
+    }
   }
 
   dispose() {
@@ -198,6 +279,8 @@ class ClawdRuntime {
     if (this.state) {
       this.state.refreshTheme();
       this.state.applyState(this.state.getCurrentState(), this.state.getSvgOverride(this.state.getCurrentState()));
+    } else if (this.activeTheme && this.activeTheme.states && this.activeTheme.states.idle) {
+      this.currentSvg = this.activeTheme.states.idle[0];
     }
     this.postThemeConfig();
   }
@@ -235,14 +318,14 @@ class ClawdRuntime {
       buildTrayMenu: () => {},
       debugLog: (message) => this.log(message),
       isOneshotDisabled: () => false,
-      hasAnyEnabledAgent: () => true,
+      hasAnyEnabledAgent: () => runtime.isRuntimeEnabled() && runtime.areIntegrationsEnabled(),
     };
   }
 
   createServerContext() {
     const runtime = this;
     return {
-      get manageClaudeHooksAutomatically() { return true; },
+      get manageClaudeHooksAutomatically() { return runtime.areIntegrationsEnabled(); },
       get autoStartWithClaude() { return false; },
       get doNotDisturb() { return runtime.doNotDisturb; },
       get hideBubbles() { return runtime.hideBubbles; },
@@ -252,8 +335,8 @@ class ClawdRuntime {
       },
       get STATE_SVGS() { return runtime.state ? runtime.state.STATE_SVGS : {}; },
       get sessions() { return runtime.state ? runtime.state.sessions : new Map(); },
-      isAgentEnabled: () => true,
-      isAgentPermissionsEnabled: () => true,
+      isAgentEnabled: () => runtime.isRuntimeEnabled() && runtime.areIntegrationsEnabled(),
+      isAgentPermissionsEnabled: () => runtime.isRuntimeEnabled() && runtime.areIntegrationsEnabled(),
       setState: (...args) => this.state.setState(...args),
       updateSession: (...args) => this.state.updateSession(...args),
       resolvePermissionEntry: (...args) => this.resolvePermissionEntry(...args),
@@ -342,17 +425,20 @@ class ClawdRuntime {
   }
 
   pushSnapshot() {
-    if (!this.view || !this.started) return;
+    if (!this.view) return;
+    const runtimeEnabled = this.isRuntimeEnabled();
     this.viewPost("init", {
       serverPort: this.server ? this.server.getHookServerPort() : null,
+      paused: !runtimeEnabled,
+      integrationsEnabled: this.areIntegrationsEnabled(),
       dnd: this.doNotDisturb,
       themeId: this.activeTheme && this.activeTheme._id,
       themes: themeLoader.discoverThemes().map((theme) => ({ id: theme.id, name: theme.name })),
       config: this.buildRendererConfig(),
-      state: this.currentState,
+      state: runtimeEnabled ? this.currentState : "paused",
       svg: this.currentSvg,
-      sessions: this.serializeSessions(),
-      permissions: this.pendingPermissions.map((entry) => this.serializePermission(entry)),
+      sessions: runtimeEnabled ? this.serializeSessions() : [],
+      permissions: runtimeEnabled ? this.pendingPermissions.map((entry) => this.serializePermission(entry)) : [],
     });
   }
 
@@ -642,6 +728,10 @@ class ClawdRuntime {
 
   async toggleDnd() {
     await this.start();
+    if (!this.state) {
+      this.pushSnapshot();
+      return this.doNotDisturb;
+    }
     if (this.doNotDisturb) this.state.disableDoNotDisturb();
     else this.state.enableDoNotDisturb();
     this.pushSnapshot();
@@ -649,7 +739,8 @@ class ClawdRuntime {
   }
 
   async installIntegrations() {
-    await this.start();
+    await this.setIntegrationsEnabled(true);
+    await this.start({ force: true });
     const port = this.server.getHookServerPort();
     const results = [];
     const run = (name, fn) => {
@@ -671,7 +762,47 @@ class ClawdRuntime {
     const message = `Clawd integrations synced on port ${port}.`;
     this.log(`${message}\n${results.join("\n")}`);
     this.viewPost("install-result", { message, details: results });
+    await this.updateContextKeys();
     return { message, details: results };
+  }
+
+  async uninstallIntegrations() {
+    const results = [];
+    const run = (name, fn) => {
+      try {
+        const result = fn();
+        results.push(`${name}: ${JSON.stringify(result)}`);
+      } catch (err) {
+        results.push(`${name}: failed (${err.message})`);
+      }
+    };
+
+    run("Claude Code", () => require(path.join(VENDOR_HOOKS_DIR, "install")).unregisterHooks({ silent: true }));
+    run("Gemini CLI", () => require(path.join(VENDOR_HOOKS_DIR, "gemini-install")).unregisterGeminiHooks({ silent: true }));
+    run("Cursor Agent", () => require(path.join(VENDOR_HOOKS_DIR, "cursor-install")).unregisterCursorHooks({ silent: true }));
+    run("CodeBuddy", () => require(path.join(VENDOR_HOOKS_DIR, "codebuddy-install")).unregisterCodeBuddyHooks({ silent: true }));
+    run("Kiro CLI", () => require(path.join(VENDOR_HOOKS_DIR, "kiro-install")).unregisterKiroHooks({ silent: true }));
+    run("opencode", () => require(path.join(VENDOR_HOOKS_DIR, "opencode-install")).unregisterOpencodePlugin({ silent: true }));
+
+    const message = "Clawd agent integrations disabled.";
+    this.log(`${message}\n${results.join("\n")}`);
+    this.viewPost("install-result", { message, details: results });
+    return { message, details: results };
+  }
+
+  async disableIntegrations() {
+    await this.setIntegrationsEnabled(false);
+    const result = await this.uninstallIntegrations();
+    await this.pause();
+    await this.updateContextKeys();
+    return result;
+  }
+
+  async enableIntegrations() {
+    await this.setIntegrationsEnabled(true);
+    const result = await this.installIntegrations();
+    await this.updateContextKeys();
+    return result;
   }
 
   syncClaudeHooks(port, autoStart = false) {

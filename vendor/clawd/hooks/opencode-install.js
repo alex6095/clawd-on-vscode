@@ -131,7 +131,73 @@ function registerOpencodePlugin(options = {}) {
   return { added, skipped, created, configPath, pluginDir };
 }
 
-module.exports = { registerOpencodePlugin, resolvePluginDir };
+function isClawdPluginEntry(entry, pluginDir) {
+  if (typeof entry !== "string") return false;
+  if (entry === pluginDir) return true;
+  const normalized = entry.replace(/\\/g, "/");
+  const isAbsolute = path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized);
+  return isAbsolute && path.posix.basename(normalized) === PLUGIN_DIR_NAME;
+}
+
+function unregisterOpencodePlugin(options = {}) {
+  const configDir = path.join(os.homedir(), ".config", "opencode");
+  const configPath = options.configPath || path.join(configDir, "opencode.json");
+  const pluginDir = options.pluginDir || resolvePluginDir();
+
+  if (!options.configPath) {
+    let exists = false;
+    try { exists = fs.statSync(configDir).isDirectory(); } catch {}
+    if (!exists) {
+      if (!options.silent) {
+        console.log("Clawd: ~/.config/opencode/ not found — skipping opencode plugin removal");
+      }
+      return { removed: 0, changed: false, configPath, pluginDir };
+    }
+  }
+
+  let settings = {};
+  try {
+    const raw = fs.readFileSync(configPath, "utf-8");
+    settings = JSON.parse(raw);
+    if (!settings || typeof settings !== "object") settings = {};
+  } catch (err) {
+    if (err.code === "ENOENT") return { removed: 0, changed: false, configPath, pluginDir };
+    throw new Error(`Failed to read ${configPath}: ${err.message}`);
+  }
+
+  if (!Array.isArray(settings.plugin)) {
+    return { removed: 0, changed: false, configPath, pluginDir };
+  }
+
+  let removed = 0;
+  const next = settings.plugin.filter((entry) => {
+    if (!isClawdPluginEntry(entry, pluginDir)) return true;
+    removed++;
+    return false;
+  });
+
+  const changed = removed > 0;
+  if (changed) {
+    settings.plugin = next;
+    writeJsonAtomic(configPath, settings);
+  }
+
+  if (!options.silent) {
+    console.log(`Clawd opencode plugin removed from ${configPath}`);
+    console.log(`  Removed: ${removed}`);
+  }
+
+  return { removed, changed, configPath, pluginDir };
+}
+
+module.exports = {
+  registerOpencodePlugin,
+  unregisterOpencodePlugin,
+  resolvePluginDir,
+  __test: {
+    isClawdPluginEntry,
+  },
+};
 
 if (require.main === module) {
   try {
