@@ -39,3 +39,5 @@ node_modules/**/src/**
 node_modules/**/test/**
 node_modules/**/tests/**
 node_modules/**/coverage/**
+
+.debug/**

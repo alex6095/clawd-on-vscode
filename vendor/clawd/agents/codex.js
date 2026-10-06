@@ -1,11 +1,24 @@
-// Codex CLI agent configuration
-// Windows hooks completely disabled — uses JSONL log polling instead
+// Codex lifecycle hooks, with transcript polling for older/untrusted installations.
 
 module.exports = {
   id: "codex",
-  name: "Codex CLI",
+  name: "Codex",
   processNames: { win: ["codex.exe"], mac: ["codex"], linux: ["codex"] },
-  eventSource: "log-poll",
+  eventSource: "hook+log-poll",
+  eventMap: {
+    SessionStart: "idle",
+    SessionEnd: "sleeping",
+    UserPromptSubmit: "thinking",
+    PreToolUse: "working",
+    PostToolUse: "working",
+    PermissionRequest: "notification",
+    SubagentStart: "juggling",
+    SubagentStop: "working",
+    PreCompact: "sweeping",
+    PostCompact: "thinking",
+    Stop: "attention",
+    Interrupt: "idle",
+  },
   // JSONL record type:subtype → pet state mapping
   // ⚠️ Also duplicated in hooks/codex-remote-monitor.js (zero-dep requirement) — keep in sync
   logEventMap: {
@@ -25,12 +38,12 @@ module.exports = {
   },
   capabilities: {
     httpHook: false,
-    permissionApproval: false,
+    permissionApproval: true, // Available only when lifecycle hooks are enabled and trusted.
     // Read-only "Got it" notification, not an approval prompt — kept
     // separate from permissionApproval so UI doesn't mislabel it.
     interactiveBubble: true,
-    sessionEnd: false, // no SessionEnd event, rely on task_complete + timeout
-    subagent: false,
+    sessionEnd: true,
+    subagent: true,
   },
   logConfig: {
     sessionDir: "~/.codex/sessions",

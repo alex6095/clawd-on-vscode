@@ -6,8 +6,9 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { buildPermissionUrl, DEFAULT_SERVER_PORT, PERMISSION_PATH, readRuntimePort, resolveNodeBin } = require("./server-config");
+const { PERMISSION_PATH, resolveNodeBin } = require("./server-config");
 const { writeJsonAtomic, asarUnpackedPath } = require("./json-utils");
+const { quoteShell } = require("./codex-install");
 
 // Hooks supported by all Claude Code versions
 const CORE_HOOKS = [
@@ -21,8 +22,7 @@ const CORE_HOOKS = [
   "SubagentStart",
   "SubagentStop",
   "Notification",
-  // PermissionRequest: handled by HTTP_HOOKS (blocking), not command hook
-  "Elicitation",
+  "PermissionRequest",
 ];
 
 // Events we used to register but shouldn't anymore. WorktreeCreate is a
@@ -36,6 +36,15 @@ const VERSIONED_HOOKS = [
   { event: "PreCompact",  minVersion: "2.1.76" },
   { event: "PostCompact", minVersion: "2.1.76" },
   { event: "StopFailure", minVersion: "2.1.78" },
+  // Introduction versions: anthropics/claude-code CHANGELOG.md.
+  { event: "TeammateIdle", minVersion: "2.1.33" },
+  { event: "TaskCompleted", minVersion: "2.1.33" },
+  { event: "Elicitation", minVersion: "2.1.76" },
+  { event: "ElicitationResult", minVersion: "2.1.76" },
+  { event: "CwdChanged", minVersion: "2.1.83" },
+  { event: "TaskCreated", minVersion: "2.1.84" },
+  { event: "PermissionDenied", minVersion: "2.1.89" },
+  { event: "PostModelSwitch", minVersion: "2.1.251" },
 ];
 
 const CLAUDE_VERSION_PATTERN = /(\d+\.\d+\.\d+)/;
@@ -271,12 +280,10 @@ function extractNodeBinFromSettings(settings, marker) {
       }
       for (const cmd of cmds) {
         if (!cmd.includes(marker)) continue;
-        // Find first quoted token: "something"
-        const qi = cmd.indexOf('"');
-        if (qi === -1) continue;
-        const qe = cmd.indexOf('"', qi + 1);
-        if (qe === -1) continue;
-        const firstQuoted = cmd.substring(qi + 1, qe);
+        // Accept both legacy double quotes and current shell-safe single quotes.
+        const token = cmd.match(/^(?:CLAWD_REMOTE=1\s+)?(["'])(.*?)\1(?:\s|$)/);
+        if (!token) continue;
+        const firstQuoted = token[2];
         // If first quoted token IS the hook script (old format), node was bare — nothing to preserve
         if (firstQuoted.includes(marker)) continue;
         // Only preserve absolute paths
@@ -431,50 +438,6 @@ function removeMatchingHttpHooks(entries, predicate) {
   return { entries: nextEntries, removed, changed };
 }
 
-function syncHttpHook(entries, expectedUrl) {
-  let found = false;
-  let changed = false;
-  if (!Array.isArray(entries)) return { found, changed };
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") continue;
-    if (isClawdPermissionHook(entry)) {
-      found = true;
-      if (entry.url !== expectedUrl) {
-        entry.url = expectedUrl;
-        changed = true;
-      }
-    }
-    if (!Array.isArray(entry.hooks)) continue;
-    for (const hook of entry.hooks) {
-      if (!isClawdPermissionHook(hook)) continue;
-      found = true;
-      if (hook.url !== expectedUrl) {
-        hook.url = expectedUrl;
-        changed = true;
-      }
-    }
-  }
-  return { found, changed };
-}
-
-function getHookServerPort(explicitPort) {
-  return Number.isInteger(explicitPort) ? explicitPort : (readRuntimePort() || DEFAULT_SERVER_PORT);
-}
-
-// HTTP hooks: PermissionRequest uses bidirectional HTTP hook for permission decisions.
-// Claude Code fires PermissionRequest for tools needing approval (primarily Bash).
-// Edit/Write permissions are handled by Claude Code's own permission mode — not our hook.
-const HTTP_HOOKS = {
-  PermissionRequest: {
-    matcher: "",
-    hook: {
-      type: "http",
-      url: "http://127.0.0.1:23333/permission",
-      timeout: 600,
-    },
-  },
-};
-
 function getSupportedVersionedHooks(versionInfo) {
   const supported = [];
   const unsupported = [];
@@ -538,8 +501,7 @@ function reconcileVersionedHooks(settings, supportedEvents, versionInfo) {
  * @returns {{ added: number, skipped: number, updated: number, removed: number, version: string|null, versionStatus: "known"|"unknown", versionSource: string|null }}
  */
 function registerHooks(options = {}) {
-  const settingsPath = options.settingsPath || path.join(os.homedir(), ".claude", "settings.json");
-  const hookPort = getHookServerPort(options.port);
+  const settingsPath = options.settingsPath || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "settings.json");
   const hookScript = asarUnpackedPath(path.resolve(__dirname, "clawd-hook.js").replace(/\\/g, "/"));
 
   // Read existing settings
@@ -611,10 +573,7 @@ function registerHooks(options = {}) {
     }
 
     // Check if our hook is already registered (search nested hooks arrays too)
-    // Remote mode: prepend CLAWD_REMOTE=1 so the hook skips PID collection
-    const desiredCommand = options.remote
-      ? `CLAWD_REMOTE=1 "${nodeBin}" "${hookScript}" ${event}`
-      : `"${nodeBin}" "${hookScript}" ${event}`;
+    const desiredCommand = `${quoteShell(nodeBin)} ${quoteShell(hookScript)} ${event}${options.remote ? " --remote" : ""}`;
     const commandSync = syncCommandHook(settings.hooks[event], MARKER, desiredCommand);
     if (commandSync.found) {
       if (commandSync.changed) {
@@ -633,6 +592,7 @@ function registerHooks(options = {}) {
         {
           type: "command",
           command: desiredCommand,
+          timeout: event === "PermissionRequest" ? 600 : 3,
         },
       ],
     });
@@ -677,46 +637,13 @@ function registerHooks(options = {}) {
     if (settings.hooks.SessionStart.length < beforeLen) changed = true;
   }
 
-  // Clean up stale command hooks for HTTP-only events (e.g. PermissionRequest).
-  // Old versions or manual edits may have registered a command hook alongside the
-  // HTTP hook, causing Claude Code to fire both and produce duplicate bubbles.
-  for (const event of Object.keys(HTTP_HOOKS)) {
-    if (!Array.isArray(settings.hooks[event])) continue;
-    const result = removeMatchingCommandHooks(
-      settings.hooks[event],
-      (command) => command.includes(MARKER)
-    );
-    if (result.changed) {
-      settings.hooks[event] = result.entries;
-      removed += result.removed;
-      changed = true;
-    }
-  }
-
-  // Register HTTP hooks (permission decision collection)
-  for (const [event, { matcher, hook }] of Object.entries(HTTP_HOOKS)) {
-    if (!Array.isArray(settings.hooks[event])) {
-      settings.hooks[event] = [];
-      changed = true;
-    }
-
-    const desiredHook = { ...hook, url: buildPermissionUrl(hookPort) };
-    const httpSync = syncHttpHook(settings.hooks[event], desiredHook.url);
-    if (httpSync.found) {
-      if (httpSync.changed) {
-        updated++;
-        changed = true;
-      } else {
-        skipped++;
-      }
-      continue;
-    }
-
-    settings.hooks[event].push({
-      matcher,
-      hooks: [desiredHook],
-    });
-    added++;
+  // Migrate old fixed-port HTTP approvals to the command bridge, which resolves
+  // the correct running window from cwd each time. Preserve all unrelated hooks.
+  const oldHttp = removeMatchingHttpHooks(settings.hooks.PermissionRequest, isClawdPermissionHook);
+  if (oldHttp.changed) {
+    settings.hooks.PermissionRequest = oldHttp.entries;
+    removed += oldHttp.removed;
+    changed = true;
   }
 
   // Only write if something changed (avoid unnecessary disk I/O)
@@ -744,9 +671,6 @@ function registerHooks(options = {}) {
       console.log(`  Skipped: ${versionSkipped} (${reason})`);
     }
     console.log(`\nHook events: ${hookEvents.join(", ")}`);
-    if (Object.keys(HTTP_HOOKS).length > 0) {
-      console.log(`HTTP hooks: ${Object.keys(HTTP_HOOKS).join(", ")}`);
-    }
   }
 
   return {
@@ -761,7 +685,7 @@ function registerHooks(options = {}) {
 }
 
 function unregisterHooks(options = {}) {
-  const settingsPath = options.settingsPath || path.join(os.homedir(), ".claude", "settings.json");
+  const settingsPath = options.settingsPath || path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "settings.json");
   let settings = {};
   try {
     settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));

@@ -91,7 +91,6 @@ let DISPLAY_HINT_MAP = {};
 const sessions = new Map();
 const MAX_SESSIONS = 20;
 const SESSION_STALE_MS = 600000;
-const WORKING_STALE_MS = 300000;
 let startupRecoveryActive = false;
 let startupRecoveryTimer = null;
 const STARTUP_RECOVERY_MAX_MS = 300000;
@@ -285,7 +284,17 @@ function resolveVisualBinding(state) {
 
 function applyResolvedDisplayState() {
   const resolved = resolveDisplayState();
-  applyState(resolved, getSvgOverride(resolved));
+  const svg = getSvgOverride(resolved);
+  // A native approval can remain open after the notification's intro ends.
+  // Hold its visual without replaying the intro and sound on every timeout.
+  if (resolved === currentState && (!svg || svg === currentSvg)) return;
+  applyState(resolved, svg);
+}
+
+function refreshDisplayState() {
+  const resolved = resolveDisplayState();
+  setState(resolved, getSvgOverride(resolved));
+  return resolved;
 }
 
 function playWakeTransitionOrResolve() {
@@ -520,6 +529,9 @@ function pushRecentEvent(existing, state, event) {
 // the menu iteration.
 function deriveSessionBadge(session) {
   if (!session) return "idle";
+  if (session.activeChildren && session.activeChildren.size) return "running";
+  if (session.status === "completed") return "done";
+  if (session.status === "interrupted") return "interrupted";
   // Any non-idle/non-sleeping state → session is actively doing something
   if (session.state !== "idle" && session.state !== "sleeping") return "running";
   // Sleeping is treated as idle (the pet sleeping doesn't mean the session is dead)
@@ -581,15 +593,21 @@ function updateSession(sessionId, state, event, opts = {}) {
     headless = false,
     displayHint = undefined,
     sessionTitle = null,
+    childAgentId = null,
+    turnId = null,
+    toolCallId = null,
+    requestId = null,
+    source = null,
+    metaOnly = false,
+    model = null,
+    agentType = null,
+    taskId = null,
+    teammateName = null,
+    teamName = null,
   } = opts;
   if (startupRecoveryActive) {
     startupRecoveryActive = false;
     if (startupRecoveryTimer) { clearTimeout(startupRecoveryTimer); startupRecoveryTimer = null; }
-  }
-
-  if (event === "PermissionRequest") {
-    setState("notification");
-    return;
   }
 
   const existing = sessions.get(sessionId);
@@ -604,17 +622,25 @@ function updateSession(sessionId, state, event, opts = {}) {
   // Sticky: empty input does not clear an existing title. A session that has
   // ever been named keeps that name until the user explicitly renames it.
   const srcSessionTitle = normalizeTitle(sessionTitle) || (existing && existing.sessionTitle) || null;
-  const srcResumeState = (existing && existing.resumeState) || null;
   const isSubagentStart = event === "SubagentStart" || event === "subagentStart";
   const isSubagentStop = event === "SubagentStop" || event === "subagentStop";
 
   debugSession(`event ${describeSession(sessionId, existing)} -> incoming=${state}/${event || "-"} hint=${displayHint || "-"}`);
 
-  const pidReachable = existing ? existing.pidReachable :
-    (srcAgentPid ? isProcessAlive(srcAgentPid) : (srcPid ? isProcessAlive(srcPid) : false));
+  const pidReachable = (srcAgentPid ? isProcessAlive(srcAgentPid) : (srcPid ? isProcessAlive(srcPid) : false));
 
   const recentEvents = pushRecentEvent(existing, state, event);
-  const base = { sourcePid: srcPid, cwd: srcCwd, editor: srcEditor, pidChain: srcPidChain, agentPid: srcAgentPid, agentId: srcAgentId, host: srcHost, headless: srcHeadless, sessionTitle: srcSessionTitle, recentEvents, pidReachable };
+  const activeChildren = new Set(existing && existing.activeChildren || []);
+  const activeToolCalls = new Set(existing && existing.activeToolCalls || []);
+  const tasks = new Map(existing && existing.tasks || []);
+  if (taskId && event === "TaskCreated") tasks.set(taskId, "pending");
+  if (taskId && event === "TaskCompleted") tasks.set(taskId, "completed");
+  const base = { ...existing, sourcePid: srcPid, cwd: srcCwd, editor: srcEditor, pidChain: srcPidChain, agentPid: srcAgentPid, agentId: srcAgentId, host: srcHost, headless: srcHeadless, sessionTitle: srcSessionTitle, recentEvents, pidReachable,
+    activeChildren, activeToolCalls, tasks, turnId: turnId || (existing && existing.turnId) || null,
+    toolCallId, requestId, source: source || (existing && existing.source) || null,
+    model: model || (existing && existing.model) || null, agentType: agentType || (existing && existing.agentType) || null,
+    taskId: taskId || (existing && existing.taskId) || null, teammateName: teammateName || (existing && existing.teammateName) || null,
+    teamName: teamName || (existing && existing.teamName) || null };
 
   // Evict oldest session if at capacity and this is a new session
   if (!existing && sessions.size >= MAX_SESSIONS) {
@@ -623,6 +649,35 @@ function updateSession(sessionId, state, event, opts = {}) {
       if (s.updatedAt < oldestTime) { oldestTime = s.updatedAt; oldestId = id; }
     }
     if (oldestId) sessions.delete(oldestId);
+  }
+
+  if (metaOnly || event === "TaskCreated" || event === "TaskCompleted" || event === "TeammateIdle") {
+    sessions.set(sessionId, { ...base, state: existing ? existing.state : "idle", updatedAt: Date.now(), displayHint: existing ? existing.displayHint : null });
+    return;
+  }
+
+  if (event === "PermissionRequest" || event === "Elicitation") {
+    sessions.set(sessionId, { ...base, state: existing ? existing.state : "thinking", updatedAt: Date.now(), displayHint: existing ? existing.displayHint : null,
+      status: event === "Elicitation" ? "input_waiting" : "approval_waiting" });
+    if (!srcHeadless) setState("notification");
+    return;
+  }
+  if (event === "Notification" && existing) {
+    sessions.set(sessionId, { ...base, updatedAt: Date.now() });
+    if (!srcHeadless) setState("notification");
+    return;
+  }
+
+  // A repeated Start for the same child is idempotent. Old integrations do
+  // not expose IDs; count their starts individually and pair anonymous stops.
+  if (isSubagentStart) {
+    activeChildren.add(childAgentId || `legacy-${Date.now()}-${(existing && existing.childSequence || 0) + 1}`);
+    const parentState = existing && existing.state !== "juggling" ? existing.state : existing && existing.resumeState || "working";
+    sessions.set(sessionId, { ...base, state: "juggling", updatedAt: Date.now(), displayHint: pickDisplayHint("juggling", existing, displayHint),
+      resumeState: parentState, childSequence: (existing && existing.childSequence || 0) + 1, status: "running" });
+    const displayState = resolveDisplayState();
+    setState(displayState, getSvgOverride(displayState));
+    return;
   }
 
   if (isSubagentStop) {
@@ -634,25 +689,20 @@ function updateSession(sessionId, state, event, opts = {}) {
       return;
     }
 
-    if (existing.state === "juggling") {
-      const resumeState = existing.resumeState || null;
-      if (resumeState) {
-        const dh = pickDisplayHint(resumeState, existing, displayHint);
-        sessions.set(sessionId, { state: resumeState, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
-        debugSession(`subagent-stop restore ${describeSession(sessionId, sessions.get(sessionId))}`);
-      } else {
-        sessions.delete(sessionId);
-        debugSession(`subagent-stop delete sid=${sessionId} reason=no-resume`);
-      }
-    } else {
-      const dh = pickDisplayHint(existing.state, existing, displayHint);
-      sessions.set(sessionId, { state: existing.state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
-      debugSession(`subagent-stop keep ${describeSession(sessionId, sessions.get(sessionId))}`);
+    if (childAgentId) activeChildren.delete(childAgentId);
+    else {
+      const anonymous = [...activeChildren].find(id => id.startsWith("legacy-"));
+      if (anonymous) activeChildren.delete(anonymous);
     }
+    const resumedState = activeChildren.size ? "juggling" : existing.resumeState || existing.state === "juggling" && "working" || existing.state;
+    sessions.set(sessionId, { ...base, state: resumedState, updatedAt: Date.now(), displayHint: pickDisplayHint(resumedState, existing, displayHint),
+      resumeState: activeChildren.size ? existing.resumeState : null,
+      status: activeChildren.size ? "running" : existing.parentFinished ? existing.parentOutcome || "completed" : "running" });
 
     cleanStaleSessions();
     const displayState = resolveDisplayState();
-    setState(displayState, getSvgOverride(displayState));
+    if (!activeChildren.size && existing.parentFinished && !existing.headless) setState(existing.parentOutcome === "interrupted" ? "error" : "attention");
+    else setState(displayState, getSvgOverride(displayState));
     return;
   }
 
@@ -680,35 +730,55 @@ function updateSession(sessionId, state, event, opts = {}) {
     const displayState = resolveDisplayState();
     setState(displayState, getSvgOverride(displayState));
     return;
-  } else if (state === "attention" || state === "notification" || SLEEP_SEQUENCE.has(state)) {
-    sessions.set(sessionId, { state: "idle", updatedAt: Date.now(), displayHint: null, ...base, resumeState: null });
+  }
+
+  const parentFinished = event === "Stop" || event === "StopFailure";
+  if (event === "PreToolUse" && toolCallId) activeToolCalls.add(toolCallId);
+  if ((event === "PostToolUse" || event === "PostToolUseFailure") && toolCallId) activeToolCalls.delete(toolCallId);
+  if (parentFinished && !childAgentId) activeToolCalls.clear();
+
+  if (activeChildren.size) {
+    // Parent completion can arrive before its children. Keep the session
+    // active and delay the celebration until the last child has stopped.
+    const resumeState = childAgentId ? existing && existing.resumeState || "working" : parentFinished ? "idle" : ONESHOT_STATES.has(state) ? existing && existing.resumeState || "working" : state;
+    sessions.set(sessionId, { ...base, state: "juggling", updatedAt: Date.now(), displayHint: pickDisplayHint("juggling", existing, displayHint),
+      resumeState, parentFinished: event === "UserPromptSubmit" ? false : (existing && existing.parentFinished) || (parentFinished && !childAgentId),
+      parentOutcome: parentFinished && !childAgentId ? event === "StopFailure" ? "interrupted" : "completed" : existing && existing.parentOutcome,
+      status: "running" });
+    const displayState = resolveDisplayState();
+    setState(displayState, getSvgOverride(displayState));
+    return;
+  }
+
+  if (parentFinished && !childAgentId) {
+    sessions.set(sessionId, { ...base, state: "idle", updatedAt: Date.now(), displayHint: null, resumeState: null,
+      parentFinished: true, status: event === "StopFailure" ? "interrupted" : "completed" });
+    if (!srcHeadless) setState(event === "StopFailure" ? "error" : "attention");
+    return;
+  }
+
+  if (state === "attention" || state === "notification" || SLEEP_SEQUENCE.has(state)) {
+    sessions.set(sessionId, { ...base, state: "idle", updatedAt: Date.now(), displayHint: null, resumeState: null,
+      parentFinished, status: event === "Stop" ? "completed" : event === "StopFailure" ? "interrupted" : "idle" });
   } else if (ONESHOT_STATES.has(state)) {
     if (existing) {
       existing.updatedAt = Date.now();
       existing.displayHint = null;
       existing.resumeState = null;
+      Object.assign(existing, base, { updatedAt: Date.now(), status: state === "error" ? "interrupted" : existing.status });
       if (sourcePid) existing.sourcePid = sourcePid;
       if (cwd) existing.cwd = cwd;
       if (editor) existing.editor = editor;
       if (pidChain && pidChain.length) existing.pidChain = pidChain;
       if (agentPid) existing.agentPid = agentPid;
     } else {
-      sessions.set(sessionId, { state: "idle", updatedAt: Date.now(), displayHint: null, ...base, resumeState: null });
+      sessions.set(sessionId, { ...base, state: "idle", updatedAt: Date.now(), displayHint: null, resumeState: null, status: state === "error" ? "interrupted" : "idle" });
     }
   } else {
-    if (isSubagentStart) {
-      const dh = pickDisplayHint(state, existing, displayHint);
-      const resumeState = existing && existing.state !== "juggling" ? existing.state : srcResumeState;
-      sessions.set(sessionId, { state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState });
-      debugSession(`subagent-start store ${describeSession(sessionId, sessions.get(sessionId))}`);
-    } else if (existing && existing.state === "juggling" && state === "working") {
-      existing.updatedAt = Date.now();
-      existing.displayHint = pickDisplayHint("juggling", existing, displayHint);
-      debugSession(`juggling-hold ${describeSession(sessionId, existing)} event=${event || "-"}`);
-    } else {
-      const dh = pickDisplayHint(state, existing, displayHint);
-      sessions.set(sessionId, { state, updatedAt: Date.now(), displayHint: dh, ...base, resumeState: null });
-    }
+    if (activeToolCalls.size && (state === "idle" || state === "thinking")) state = "working";
+    const dh = pickDisplayHint(state, existing, displayHint);
+    sessions.set(sessionId, { ...base, state, updatedAt: Date.now(), displayHint: dh, resumeState: null,
+      parentFinished: false, status: state === "idle" ? "idle" : "running" });
   }
   cleanStaleSessions();
 
@@ -722,6 +792,7 @@ function updateSession(sessionId, state, event, opts = {}) {
 }
 
 function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try { _kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 }
 
@@ -739,34 +810,16 @@ function cleanStaleSessions() {
       continue;
     }
 
-    if (age > SESSION_STALE_MS) {
-      if (s.pidReachable && s.sourcePid) {
-        if (!isProcessAlive(s.sourcePid)) {
-          debugSession(`stale-delete source-exit ${describeSession(id, s)}`);
-          if (!s.headless) removedNonHeadless = true;
-          sessions.delete(id); changed = true;
-        } else if (s.state !== "idle") {
-          debugSession(`stale-idle session-timeout ${describeSession(id, s)}`);
-          s.state = "idle"; s.displayHint = null; changed = true;
-        }
-      } else if (!s.pidReachable) {
-        debugSession(`stale-delete unreachable ${describeSession(id, s)}`);
-        if (!s.headless) removedNonHeadless = true;
-        sessions.delete(id); changed = true;
-      } else {
-        debugSession(`stale-delete no-source ${describeSession(id, s)}`);
-        if (!s.headless) removedNonHeadless = true;
-        sessions.delete(id); changed = true;
-      }
-    } else if (age > WORKING_STALE_MS) {
-      if (s.pidReachable && s.sourcePid && !isProcessAlive(s.sourcePid)) {
-        debugSession(`stale-delete working-source-exit ${describeSession(id, s)}`);
-        if (!s.headless) removedNonHeadless = true;
-        sessions.delete(id); changed = true;
-      } else if (s.state === "working" || s.state === "juggling" || s.state === "thinking") {
-        debugSession(`stale-idle working-timeout ${describeSession(id, s)}`);
-        s.state = "idle"; s.displayHint = null; s.updatedAt = now; changed = true;
-      }
+    // A silent, live build can run for hours. Wall-clock age is only a
+    // fallback for sessions whose process cannot be identified, never proof
+    // that an alive agent has completed its work.
+    const owningPid = s.agentPid || s.sourcePid;
+    const alive = owningPid && isProcessAlive(owningPid);
+    if (alive) s.pidReachable = true;
+    if ((s.pidReachable && owningPid && !alive) || (!alive && age > SESSION_STALE_MS)) {
+      debugSession(`stale-delete ${owningPid ? "process-exit" : "unreachable"} ${describeSession(id, s)}`);
+      if (!s.headless) removedNonHeadless = true;
+      sessions.delete(id); changed = true;
     }
   }
   if (changed && sessions.size === 0) {
@@ -859,6 +912,10 @@ function resolveDisplayState() {
     }
     if (!hasNonHeadless) best = "idle";
   }
+  const hasNativePermission = Array.isArray(ctx.pendingPermissions) && ctx.pendingPermissions.some(entry =>
+    !entry.isCodexNotify && (entry.isOpencode || entry.res && !entry.res.writableEnded && !entry.res.destroyed)
+  );
+  if (hasNativePermission && STATE_PRIORITY.notification > (STATE_PRIORITY[best] || 0)) best = "notification";
   // Update overlay participates in priority — won't override higher-priority agent states
   if (updateVisualState && (STATE_PRIORITY[updateVisualState] || 0) >= (STATE_PRIORITY[best] || 0)) {
     return updateVisualState;
@@ -1028,7 +1085,14 @@ function enableDoNotDisturb() {
   ctx.doNotDisturb = true;
   ctx.sendToRenderer("dnd-change", true);
   ctx.sendToHitWin("hit-state-sync", { dndEnabled: true });
-  for (const perm of [...ctx.pendingPermissions]) ctx.resolvePermissionEntry(perm, "deny", "DND enabled");
+  for (const perm of [...ctx.pendingPermissions]) {
+    if (typeof ctx.deferPermissionEntry === "function") ctx.deferPermissionEntry(perm, "DND enabled");
+    else {
+      if (perm.res && perm.abortHandler) perm.res.removeListener("close", perm.abortHandler);
+      if (perm.res && !perm.res.writableEnded && !perm.res.destroyed) { perm.res.writeHead(200, { "Content-Type": "application/json" }); perm.res.end("{}"); }
+      if (!perm.isOpencode) ctx.resolvePermissionEntry(perm, "deny", "DND enabled");
+    }
+  }
   if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; pendingState = null; }
   if (autoReturnTimer) { clearTimeout(autoReturnTimer); autoReturnTimer = null; }
   stopWakePoll();
@@ -1080,7 +1144,7 @@ function cleanup() {
 }
 
 return {
-  setState, applyState, updateSession, resolveDisplayState, resolveVisualBinding, setUpdateVisualState,
+  setState, applyState, updateSession, resolveDisplayState, refreshDisplayState, resolveVisualBinding, setUpdateVisualState,
   enableDoNotDisturb, disableDoNotDisturb,
   startStaleCleanup, stopStaleCleanup, startWakePoll, stopWakePoll,
   getSvgOverride, cleanStaleSessions, startStartupRecovery, refreshTheme,

@@ -19,3 +19,12 @@ Third-party artist contributions:
 You may NOT copy, modify, distribute, or use any artwork from this directory
 without explicit written permission from the copyright holder(s), except for
 personal use of the Clawd on VS Code extension as distributed by this project.
+
+
+Neobjuk (넙죽이) theme
+---------------------
+The Neobjuk SVG animations reproduce the KAIST mascot from the user-provided
+reference image. The underlying character identity, KAIST wordmark, and reference
+artwork belong to their respective rights holders. They are not relicensed under
+the source-code MIT license. This extension does not claim KAIST endorsement.
+The editable reconstruction source is scripts/generate-neobjuk.js.

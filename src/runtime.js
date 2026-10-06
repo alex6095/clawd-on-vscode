@@ -3,6 +3,7 @@
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const { randomUUID } = require("crypto");
 const { fileURLToPath } = require("url");
 const vscode = require("vscode");
 const { collectThemeFiles, toAssetMap } = require("./asset-map");
@@ -127,6 +128,12 @@ class ClawdRuntime {
     this.hideBubbles = false;
     this.currentState = "idle";
     this.currentSvg = null;
+    this.runtimeInstanceId = randomUUID();
+    this.startPromise = null;
+    this.generation = 0;
+    this.hookSessions = new Set();
+    this.hookAgents = new Set();
+    this.connectionState = "starting";
   }
 
   attachView(view) {
@@ -149,6 +156,48 @@ class ClawdRuntime {
     return this.getConfig().get("integrations.enabled", true) !== false;
   }
 
+  selectedAgents() {
+    const agents = this.getConfig().get("integrations.agents", ["claude-code", "codex"]);
+    return Array.isArray(agents) ? agents : ["claude-code", "codex"];
+  }
+
+  isAgentEnabled(id) {
+    return this.isRuntimeEnabled() && this.areIntegrationsEnabled()
+      && vscode.workspace.isTrusted !== false && this.selectedAgents().includes(id || "claude-code");
+  }
+
+  workspaceRoots() {
+    return (vscode.workspace.workspaceFolders || []).map((folder) => folder.uri.fsPath);
+  }
+
+  acceptsSession(cwd) {
+    if (this.getConfig().get("sessions.scope", "workspace") === "all") return true;
+    const roots = this.workspaceRoots();
+    if (!roots.length) return true;
+    if (!cwd) return false;
+    return roots.some((root) => {
+      const relative = path.relative(root, cwd);
+      return !relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+    });
+  }
+
+  ingestSession(sid, state, event, extra = {}, source = extra.source === "log" ? "log" : "hook") {
+    if (!this.state || !this.isAgentEnabled(extra.agentId)) return;
+    const existing = this.state.sessions.get(sid);
+    const cwd = extra.cwd || existing && existing.cwd;
+    if (!this.acceptsSession(cwd)) return;
+    if (source === "log" && this.hookSessions.has(sid)) return;
+    if (source === "hook") {
+      this.hookSessions.add(sid);
+      this.hookAgents.add(extra.agentId || "claude-code");
+    }
+    this.state.updateSession(sid, state, event, { ...extra, cwd, source });
+  }
+
+  isPermissionUIAvailable() {
+    return !!(this.view && this.view.isVisible && this.isRuntimeEnabled() && !this.doNotDisturb);
+  }
+
   async setRuntimeEnabled(enabled) {
     await this.getConfig().update("runtime.enabled", !!enabled, vscode.ConfigurationTarget.Global);
     await this.updateContextKeys();
@@ -163,6 +212,7 @@ class ClawdRuntime {
     try {
       await vscode.commands.executeCommand("setContext", "clawd.runtime.paused", !this.isRuntimeEnabled());
       await vscode.commands.executeCommand("setContext", "clawd.integrations.enabled", this.areIntegrationsEnabled());
+      await vscode.commands.executeCommand("setContext", "clawd.dnd", this.doNotDisturb);
     } catch {}
   }
 
@@ -178,9 +228,19 @@ class ClawdRuntime {
 
   async start(options = {}) {
     if (options.force) await this.setRuntimeEnabled(true);
-    await this.updateContextKeys();
+    if (!this.startPromise) {
+      const pending = this.startOnce(this.generation);
+      this.startPromise = pending;
+      pending.finally(() => { if (this.startPromise === pending) this.startPromise = null; }).catch(() => {});
+    }
+    return this.startPromise;
+  }
 
-    if (!this.isRuntimeEnabled()) {
+  async startOnce(generation) {
+    await this.updateContextKeys();
+    if (generation !== this.generation) return;
+
+    if (!this.isRuntimeEnabled() || vscode.workspace.isTrusted === false) {
       this.disposeRuntime();
       this.ensureThemeReady();
       this.currentState = "paused";
@@ -189,18 +249,38 @@ class ClawdRuntime {
     }
 
     if (this.started) {
+      this.refreshRuntimeRegistration();
       this.pushSnapshot();
       return;
     }
 
     this.ensureThemeReady();
 
+    this.connectionState = "starting";
+    this.pushSnapshot();
     this.state = initState(this.createStateContext());
     this.server = initServer(this.createServerContext());
-    this.server.startHttpServer();
+    const server = this.server;
+    try {
+      await server.startHttpServer();
+    } catch (error) {
+      if (generation === this.generation) {
+        this.disposeRuntime();
+        this.pushSnapshot();
+      }
+      throw error;
+    }
+    if (generation !== this.generation) { server.cleanup(); return; }
+    if (!this.isRuntimeEnabled() || vscode.workspace.isTrusted === false) {
+      this.disposeRuntime();
+      this.currentState = "paused";
+      this.pushSnapshot();
+      return;
+    }
     this.state.startStaleCleanup();
     this.startLogMonitors();
     this.started = true;
+    this.connectionState = "connected";
 
     this.state.applyState("idle", this.activeTheme.states.idle[0]);
     this.pushSnapshot();
@@ -226,12 +306,20 @@ class ClawdRuntime {
   }
 
   async resume() {
+    if (!this.areIntegrationsEnabled()) {
+      await this.setIntegrationsEnabled(true);
+      this.disposeRuntime();
+    }
     await this.setRuntimeEnabled(true);
     await this.start({ force: true });
     return { message: "Clawd runtime resumed." };
   }
 
   disposeRuntime() {
+    this.generation++;
+    this.startPromise = null;
+    this.started = false;
+    this.connectionState = "disconnected";
     this.clearPendingPermissionsForShutdown();
     try { if (this.codexMonitor) this.codexMonitor.stop(); } catch {}
     try { if (this.geminiMonitor) this.geminiMonitor.stop(); } catch {}
@@ -242,25 +330,35 @@ class ClawdRuntime {
     this.state = null;
     this.server = null;
     this.pendingPermissions = [];
+    this.hookSessions.clear();
+    this.hookAgents.clear();
   }
 
   clearPendingPermissionsForShutdown() {
     for (const entry of [...this.pendingPermissions]) {
-      if (!entry) continue;
-      if (entry._clawdId) this.viewPost("permission-hide", { id: entry._clawdId });
-      if (entry.isCodexNotify || entry.isOpencode) continue;
-      const { res, abortHandler } = entry;
-      try {
-        if (res && abortHandler) res.removeListener("close", abortHandler);
-      } catch {}
-      try {
-        if (res && !res.writableEnded && !res.destroyed) res.destroy();
-      } catch {}
+      if (entry) this.deferPermissionEntry(entry, "Clawd unavailable; continue in the agent");
     }
+  }
+
+  deferPermissionEntry(entry, reason) {
+    this.removePermission(entry);
+    const { res, abortHandler } = entry;
+    if (res && abortHandler) res.removeListener("close", abortHandler);
+    if (res && !res.writableEnded && !res.destroyed) {
+      if (typeof res.end === "function") {
+        res.writeHead(200, { "Content-Type": "application/json", [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+        res.end("{}");
+      } else if (typeof res.destroy === "function") res.destroy();
+    }
+    if (reason) this.log(reason);
   }
 
   dispose() {
     this.disposeRuntime();
+  }
+
+  refreshRuntimeRegistration() {
+    if (this.server && typeof this.server.refreshRuntimeRegistration === "function") this.server.refreshRuntimeRegistration();
   }
 
   loadConfiguredTheme() {
@@ -274,15 +372,20 @@ class ClawdRuntime {
   }
 
   async setTheme(themeId) {
-    await vscode.workspace.getConfiguration("clawd").update("theme", themeId, vscode.ConfigurationTarget.Global);
+    this.ensureThemeReady();
+    if (!themeLoader.discoverThemes().some((theme) => theme.id === themeId)) throw new Error("Unknown character");
     this.activeTheme = themeLoader.loadTheme(themeId, { strict: true });
+    this.postThemeConfig();
     if (this.state) {
       this.state.refreshTheme();
       this.state.applyState(this.state.getCurrentState(), this.state.getSvgOverride(this.state.getCurrentState()));
     } else if (this.activeTheme && this.activeTheme.states && this.activeTheme.states.idle) {
       this.currentSvg = this.activeTheme.states.idle[0];
     }
-    this.postThemeConfig();
+    this.pushSnapshot();
+    if (this.getConfig().get("theme") !== themeId) {
+      await this.getConfig().update("theme", themeId, vscode.ConfigurationTarget.Global);
+    }
   }
 
   createStateContext() {
@@ -312,6 +415,7 @@ class ClawdRuntime {
       t: (key) => key,
       focusTerminalWindow: (...args) => this.focusTerminalWindow(...args),
       resolvePermissionEntry: (...args) => this.resolvePermissionEntry(...args),
+      deferPermissionEntry: (...args) => this.deferPermissionEntry(...args),
       miniPeekIn: () => {},
       miniPeekOut: () => {},
       buildContextMenu: () => {},
@@ -325,7 +429,9 @@ class ClawdRuntime {
   createServerContext() {
     const runtime = this;
     return {
-      get manageClaudeHooksAutomatically() { return runtime.areIntegrationsEnabled(); },
+      get manageClaudeHooksAutomatically() { return false; },
+      get workspaceRoots() { return runtime.workspaceRoots(); },
+      runtimeInstanceId: this.runtimeInstanceId,
       get autoStartWithClaude() { return false; },
       get doNotDisturb() { return runtime.doNotDisturb; },
       get hideBubbles() { return runtime.hideBubbles; },
@@ -335,11 +441,13 @@ class ClawdRuntime {
       },
       get STATE_SVGS() { return runtime.state ? runtime.state.STATE_SVGS : {}; },
       get sessions() { return runtime.state ? runtime.state.sessions : new Map(); },
-      isAgentEnabled: () => runtime.isRuntimeEnabled() && runtime.areIntegrationsEnabled(),
-      isAgentPermissionsEnabled: () => runtime.isRuntimeEnabled() && runtime.areIntegrationsEnabled(),
+      isAgentEnabled: (id) => runtime.isAgentEnabled(id),
+      isAgentPermissionsEnabled: (id) => runtime.isAgentEnabled(id),
+      isPermissionUIAvailable: () => runtime.isPermissionUIAvailable(),
       setState: (...args) => this.state.setState(...args),
-      updateSession: (...args) => this.state.updateSession(...args),
+      updateSession: (...args) => this.ingestSession(...args),
       resolvePermissionEntry: (...args) => this.resolvePermissionEntry(...args),
+      deferPermissionEntry: (...args) => this.deferPermissionEntry(...args),
       sendPermissionResponse: (...args) => this.sendPermissionResponse(...args),
       showPermissionBubble: (entry) => this.showPermissionBubble(entry),
       replyOpencodePermission: (...args) => this.replyOpencodePermission(...args),
@@ -354,42 +462,22 @@ class ClawdRuntime {
   }
 
   startLogMonitors() {
-    try {
+    if (this.isAgentEnabled("codex") && this.getConfig().get("codex.logFallback", true)) try {
       const CodexLogMonitor = require(path.join(VENDOR_AGENTS_DIR, "codex-log-monitor"));
       const codexAgent = require(path.join(VENDOR_AGENTS_DIR, "codex"));
       this.codexMonitor = new CodexLogMonitor(codexAgent, (sid, state, event, extra = {}) => {
-        if (state === "codex-permission") {
-          this.state.updateSession(sid, "notification", event, {
-            cwd: extra.cwd,
-            agentId: "codex",
-            sessionTitle: extra.sessionTitle,
-          });
-          this.showCodexNotifyBubble({
-            sessionId: sid,
-            command: extra.permissionDetail && extra.permissionDetail.command,
-          });
-          return;
-        }
-        this.dismissCodexNotifyBubble(sid);
-        this.state.updateSession(sid, state, event, {
-          cwd: extra.cwd,
-          agentId: "codex",
-          sessionTitle: extra.sessionTitle,
-        });
+        this.ingestSession(sid, state, event, { ...extra, agentId: "codex" }, "log");
       });
       this.codexMonitor.start();
     } catch (err) {
       this.log(`Codex log monitor not started: ${err.message}`);
     }
 
-    try {
+    if (this.isAgentEnabled("gemini-cli")) try {
       const GeminiLogMonitor = require(path.join(VENDOR_AGENTS_DIR, "gemini-log-monitor"));
       const geminiAgent = require(path.join(VENDOR_AGENTS_DIR, "gemini-cli"));
       this.geminiMonitor = new GeminiLogMonitor(geminiAgent, (sid, state, event, extra = {}) => {
-        this.state.updateSession(sid, state, event, {
-          cwd: extra.cwd,
-          agentId: "gemini-cli",
-        });
+        this.ingestSession(sid, state, event, { ...extra, agentId: "gemini-cli" }, "log");
       });
       this.geminiMonitor.start();
     } catch (err) {
@@ -410,6 +498,7 @@ class ClawdRuntime {
       return;
     }
     if (channel === "dnd-change") {
+      void this.updateContextKeys();
       this.viewPost("dnd-change", { enabled: !!args[0] });
       return;
     }
@@ -426,10 +515,11 @@ class ClawdRuntime {
 
   pushSnapshot() {
     if (!this.view) return;
-    const runtimeEnabled = this.isRuntimeEnabled();
+    const runtimeEnabled = this.isRuntimeEnabled() && vscode.workspace.isTrusted !== false;
     this.viewPost("init", {
       serverPort: this.server ? this.server.getHookServerPort() : null,
       paused: !runtimeEnabled,
+      connectionState: !runtimeEnabled ? "paused" : this.connectionState,
       integrationsEnabled: this.areIntegrationsEnabled(),
       dnd: this.doNotDisturb,
       themeId: this.activeTheme && this.activeTheme._id,
@@ -479,10 +569,14 @@ class ClawdRuntime {
     }
     return {
       ...config,
+      reducedMotion: this.getConfig().get("animation.reducedMotion", "system"),
       assetMap,
       soundMap,
       agentIconMap,
       reactions: theme && theme.reactions ? theme.reactions : {},
+      hitBoxes: theme && theme.hitBoxes || {},
+      wideHitboxFiles: theme && theme.wideHitboxFiles || [],
+      sleepingHitboxFiles: theme && theme.sleepingHitboxFiles || [],
       allFiles: Array.from(collectThemeFiles(theme)),
     };
   }
@@ -490,10 +584,12 @@ class ClawdRuntime {
   serializeSessions() {
     if (!this.state) return [];
     const items = [];
+    const waiting = new Set(this.pendingPermissions.filter((entry) => !entry.isCodexNotify).map((entry) => entry.sessionId));
     for (const [id, session] of this.state.sessions) {
       items.push({
         id,
-        state: session.state,
+        state: waiting.has(id) ? "notification" : session.state,
+        status: waiting.has(id) ? "approval_waiting" : session.status,
         agentId: session.agentId || "agent",
         cwd: session.cwd || "",
         folder: session.cwd ? basename(session.cwd) : id.slice(-8),
@@ -502,6 +598,11 @@ class ClawdRuntime {
         sourcePid: session.sourcePid || null,
         pidChain: Array.isArray(session.pidChain) ? session.pidChain : [],
         host: session.host || "",
+        source: session.source || "hook",
+        activeChildren: session.activeChildren instanceof Set ? session.activeChildren.size : 0,
+        model: session.model || null,
+        turnId: session.turnId || null,
+        toolCallId: session.toolCallId || null,
       });
     }
     items.sort((a, b) => {
@@ -566,7 +667,7 @@ class ClawdRuntime {
       toolName: entry.toolName || "Unknown",
       toolInput,
       inputPreview: serializeInput(entry.toolInput),
-      suggestions: Array.isArray(entry.suggestions) ? entry.suggestions : [],
+      suggestions: entry.agentId !== "codex" && Array.isArray(entry.suggestions) ? entry.suggestions : [],
       isElicitation,
       isOpencode: !!entry.isOpencode,
       isCodexNotify: !!entry.isCodexNotify,
@@ -593,16 +694,17 @@ class ClawdRuntime {
     }
 
     if (behavior === "opencode-always") {
+      if (!entry.isOpencode) return;
       entry.opencodeAlwaysPicked = true;
       this.resolvePermissionEntry(entry, "allow");
       return;
     }
 
     if (typeof behavior === "string" && behavior.startsWith("suggestion:")) {
+      if (entry.agentId === "codex") return;
       const idx = Number.parseInt(behavior.split(":")[1], 10);
       const suggestion = entry.suggestions && entry.suggestions[idx];
       if (!suggestion) {
-        this.resolvePermissionEntry(entry, "deny", "Invalid suggestion index");
         return;
       }
       entry.resolvedSuggestion = normalizeResolvedSuggestion(suggestion);
@@ -611,12 +713,12 @@ class ClawdRuntime {
     }
 
     if (behavior === "deny-and-focus") {
-      this.removePermission(entry);
-      this.focusTerminalForSession(entry.sessionId);
+      this.deferPermissionEntry(entry, "Continue this request in the agent");
+      void this.focusTerminalForSession(entry.sessionId);
       return;
     }
 
-    this.resolvePermissionEntry(entry, behavior === "allow" ? "allow" : "deny");
+    if (behavior === "allow" || behavior === "deny") this.resolvePermissionEntry(entry, behavior);
   }
 
   buildElicitationUpdatedInput(toolInput, answers) {
@@ -637,6 +739,7 @@ class ClawdRuntime {
     const idx = this.pendingPermissions.indexOf(entry);
     if (idx !== -1) this.pendingPermissions.splice(idx, 1);
     this.viewPost("permission-hide", { id: entry._clawdId });
+    if (this.state && typeof this.state.refreshDisplayState === "function") this.state.refreshDisplayState();
   }
 
   resolvePermissionEntry(entry, behavior, message) {
@@ -647,8 +750,7 @@ class ClawdRuntime {
 
     const idx = this.pendingPermissions.indexOf(entry);
     if (idx === -1) return;
-    this.pendingPermissions.splice(idx, 1);
-    this.viewPost("permission-hide", { id: entry._clawdId });
+    this.removePermission(entry);
 
     const { res, abortHandler } = entry;
     if (res && abortHandler) res.removeListener("close", abortHandler);
@@ -667,22 +769,21 @@ class ClawdRuntime {
 
     if (!res || res.writableEnded || res.destroyed) return;
 
-    if (entry.isElicitation) {
+    if (entry.isElicitation && entry.agentId !== "codex") {
       if (behavior === "allow" && entry.resolvedUpdatedInput) {
         this.sendPermissionResponse(res, {
           behavior: "allow",
           updatedInput: entry.resolvedUpdatedInput,
         });
       } else {
-        this.sendPermissionResponse(res, "deny", message, "Elicitation");
-        this.focusTerminalForSession(entry.sessionId);
+        this.sendPermissionResponse(res, "deny", message);
       }
       return;
     }
 
     const decision = { behavior: behavior === "deny" ? "deny" : "allow" };
     if (behavior === "deny" && message) decision.message = message;
-    if (entry.resolvedSuggestion) decision.updatedPermissions = [entry.resolvedSuggestion];
+    if (entry.resolvedSuggestion && entry.agentId !== "codex") decision.updatedPermissions = [entry.resolvedSuggestion];
     this.sendPermissionResponse(res, decision);
   }
 
@@ -727,82 +828,135 @@ class ClawdRuntime {
   }
 
   async toggleDnd() {
-    await this.start();
     if (!this.state) {
+      this.doNotDisturb = !this.doNotDisturb;
+      await this.updateContextKeys();
       this.pushSnapshot();
       return this.doNotDisturb;
     }
     if (this.doNotDisturb) this.state.disableDoNotDisturb();
-    else this.state.enableDoNotDisturb();
+    else {
+      this.clearPendingPermissionsForShutdown();
+      this.state.enableDoNotDisturb();
+    }
     this.pushSnapshot();
+    await this.updateContextKeys();
     return this.doNotDisturb;
   }
 
   async installIntegrations() {
+    if (vscode.workspace.isTrusted === false) throw new Error("Trust this workspace before installing agent hooks.");
     await this.setIntegrationsEnabled(true);
     await this.start({ force: true });
-    const port = this.server.getHookServerPort();
     const results = [];
-    const run = (name, fn) => {
+    for (const id of this.selectedAgents()) {
       try {
-        const result = fn();
-        results.push(`${name}: ${JSON.stringify(result)}`);
-      } catch (err) {
-        results.push(`${name}: failed (${err.message})`);
+        const result = this.runIntegrationInstaller(id, false);
+        results.push({ agent: id, ok: true, ...result });
+      } catch (error) {
+        results.push({ agent: id, ok: false, error: error.message });
       }
+    }
+    const succeeded = results.filter((result) => result.ok).map((result) => result.agent);
+    if (this.context.globalState) {
+      const previous = this.context.globalState.get("installedAgents", []);
+      await this.context.globalState.update("installedAgents", [...new Set([...previous, ...succeeded])]);
+    }
+    const failed = results.filter((result) => !result.ok);
+    const trust = results.some((result) => result.ok && result.trustRequired);
+    const names = succeeded.map((id) => id === "claude-code" ? "Claude Code" : id === "codex" ? "Codex" : id);
+    const message = `${names.join(" and ") || "No agent connections"} set up.${failed.length ? ` ${failed.length} failed; open diagnostics for details.` : ""}${trust ? " Codex activity is available; review Clawd hooks in Codex for live events and approval cards." : ""}`;
+    this.log(`${message}\n${JSON.stringify(results, null, 2)}`);
+    return { message, details: results, ok: !failed.length, trustRequired: trust };
+  }
+
+  runIntegrationInstaller(id, uninstall) {
+    const installers = {
+      "claude-code": ["install", "registerHooks", "unregisterHooks"],
+      codex: ["codex-install", "registerCodexHooks", "unregisterCodexHooks"],
+      "gemini-cli": ["gemini-install", "registerGeminiHooks", "unregisterGeminiHooks"],
+      "cursor-agent": ["cursor-install", "registerCursorHooks", "unregisterCursorHooks"],
+      codebuddy: ["codebuddy-install", "registerCodeBuddyHooks", "unregisterCodeBuddyHooks"],
+      "kiro-cli": ["kiro-install", "registerKiroHooks", "unregisterKiroHooks"],
+      opencode: ["opencode-install", "registerOpencodePlugin", "unregisterOpencodePlugin"],
     };
-
-    run("Claude Code", () => this.syncClaudeHooks(port, false));
-    run("Gemini CLI", () => require(path.join(VENDOR_HOOKS_DIR, "gemini-install")).registerGeminiHooks({ silent: true }));
-    run("Cursor Agent", () => require(path.join(VENDOR_HOOKS_DIR, "cursor-install")).registerCursorHooks({ silent: true }));
-    run("CodeBuddy", () => require(path.join(VENDOR_HOOKS_DIR, "codebuddy-install")).registerCodeBuddyHooks({ silent: true }));
-    run("Kiro CLI", () => require(path.join(VENDOR_HOOKS_DIR, "kiro-install")).registerKiroHooks({ silent: true }));
-    run("opencode", () => require(path.join(VENDOR_HOOKS_DIR, "opencode-install")).registerOpencodePlugin({ silent: true }));
-
-    const message = `Clawd integrations synced on port ${port}.`;
-    this.log(`${message}\n${results.join("\n")}`);
-    this.viewPost("install-result", { message, details: results });
-    await this.updateContextKeys();
-    return { message, details: results };
+    const spec = installers[id];
+    if (!spec) throw new Error(`Unsupported agent: ${id}`);
+    return require(path.join(VENDOR_HOOKS_DIR, spec[0]))[spec[uninstall ? 2 : 1]]({
+      silent: true, port: this.server && this.server.getHookServerPort(), autoStart: false,
+    });
   }
 
   async uninstallIntegrations() {
+    const agents = this.context.globalState ? this.context.globalState.get("installedAgents", this.selectedAgents()) : this.selectedAgents();
     const results = [];
-    const run = (name, fn) => {
-      try {
-        const result = fn();
-        results.push(`${name}: ${JSON.stringify(result)}`);
-      } catch (err) {
-        results.push(`${name}: failed (${err.message})`);
-      }
-    };
-
-    run("Claude Code", () => require(path.join(VENDOR_HOOKS_DIR, "install")).unregisterHooks({ silent: true }));
-    run("Gemini CLI", () => require(path.join(VENDOR_HOOKS_DIR, "gemini-install")).unregisterGeminiHooks({ silent: true }));
-    run("Cursor Agent", () => require(path.join(VENDOR_HOOKS_DIR, "cursor-install")).unregisterCursorHooks({ silent: true }));
-    run("CodeBuddy", () => require(path.join(VENDOR_HOOKS_DIR, "codebuddy-install")).unregisterCodeBuddyHooks({ silent: true }));
-    run("Kiro CLI", () => require(path.join(VENDOR_HOOKS_DIR, "kiro-install")).unregisterKiroHooks({ silent: true }));
-    run("opencode", () => require(path.join(VENDOR_HOOKS_DIR, "opencode-install")).unregisterOpencodePlugin({ silent: true }));
-
-    const message = "Clawd agent integrations disabled.";
-    this.log(`${message}\n${results.join("\n")}`);
-    this.viewPost("install-result", { message, details: results });
-    return { message, details: results };
+    for (const id of agents) {
+      try { results.push({ agent: id, ok: true, ...this.runIntegrationInstaller(id, true) }); }
+      catch (error) { results.push({ agent: id, ok: false, error: error.message }); }
+    }
+    if (this.context.globalState) await this.context.globalState.update("installedAgents", results.filter((r) => !r.ok).map((r) => r.agent));
+    const ok = results.every((result) => result.ok);
+    const message = ok ? "Clawd hooks removed from selected agents." : "Some hooks could not be removed; see Clawd diagnostics.";
+    this.log(`${message}\n${JSON.stringify(results, null, 2)}`);
+    return { message, details: results, ok };
   }
 
   async disableIntegrations() {
     await this.setIntegrationsEnabled(false);
-    const result = await this.uninstallIntegrations();
     await this.pause();
-    await this.updateContextKeys();
-    return result;
+    return { message: "Clawd integrations paused. Installed hooks fall back to the agent's own interface." };
   }
 
   async enableIntegrations() {
     await this.setIntegrationsEnabled(true);
-    const result = await this.installIntegrations();
-    await this.updateContextKeys();
-    return result;
+    await this.restart();
+    return { message: "Clawd integrations enabled. Use Install Agent Integrations if hooks are not installed." };
+  }
+
+  themes() {
+    this.ensureThemeReady();
+    return themeLoader.discoverThemes().map((theme) => ({ id: theme.id, label: theme.name }));
+  }
+
+  previewChoices() {
+    this.ensureThemeReady();
+    return Object.entries(this.activeTheme.states).flatMap(([state, files]) =>
+      (Array.isArray(files) ? files : [files]).map((svg) => ({ label: state, description: svg, state, svg })));
+  }
+
+  previewAnimation(choice) {
+    if (!this.previewChoices().some((item) => item.svg === choice.svg && item.state === choice.state)) return;
+    this.viewPost("preview-animation", { state: choice.state, svg: choice.svg, duration: 6000 });
+  }
+
+  diagnostics() {
+    const codex = require(path.join(VENDOR_HOOKS_DIR, "codex-install")).getCodexHookStatus();
+    const data = {
+      runtime: this.started ? "running" : this.isRuntimeEnabled() ? this.connectionState : "paused", instance: this.runtimeInstanceId,
+      serverPort: this.server ? this.server.getHookServerPort() : null,
+      trustedWorkspace: vscode.workspace.isTrusted !== false,
+      workspaceRoots: this.workspaceRoots(), scope: this.getConfig().get("sessions.scope", "workspace"),
+      selectedAgents: this.selectedAgents(), theme: this.activeTheme && this.activeTheme._id,
+      sidebarVisible: !!(this.view && this.view.isVisible), sessions: this.serializeSessions(),
+      pendingPermissions: this.pendingPermissions.length,
+      notificationsQuiet: this.doNotDisturb,
+      codex: { ...codex, hookObserved: [...this.hookSessions].some((id) => id.startsWith("codex:")), logFallbackRunning: !!this.codexMonitor },
+    };
+    this.log(JSON.stringify(data, null, 2));
+    if (this.output && this.output.show) this.output.show(true);
+    return data;
+  }
+
+  connectionStatus() {
+    const codex = require(path.join(VENDOR_HOOKS_DIR, "codex-install")).getCodexHookStatus({ detectVersion: false });
+    return {
+      enabled: this.isRuntimeEnabled() && this.areIntegrationsEnabled(),
+      running: this.started,
+      selectedAgents: this.selectedAgents(),
+      installedAgents: this.context.globalState ? this.context.globalState.get("installedAgents", []) : [],
+      claudeObserved: this.hookAgents.has("claude-code"),
+      codex: { ...codex, hookObserved: [...this.hookSessions].some((id) => id.startsWith("codex:")), logFallbackRunning: !!this.codexMonitor },
+    };
   }
 
   syncClaudeHooks(port, autoStart = false) {
@@ -831,13 +985,12 @@ class ClawdRuntime {
     return this.focusTerminalWindow(session.sourcePid, session.cwd, session.editor, session.pidChain);
   }
 
-  async focusTerminalWindow(sourcePid, _cwd, _editor, pidChain) {
+  async focusTerminalWindow(sourcePid, cwd, _editor, pidChain) {
     const pids = new Set();
     if (Number.isFinite(sourcePid) && sourcePid > 0) pids.add(sourcePid);
     if (Array.isArray(pidChain)) {
       for (const pid of pidChain) if (Number.isFinite(pid) && pid > 0) pids.add(pid);
     }
-    if (pids.size === 0) return false;
 
     for (const terminal of vscode.window.terminals) {
       let pid = null;
@@ -846,6 +999,17 @@ class ClawdRuntime {
         terminal.show(false);
         return true;
       }
+    }
+    if (cwd) {
+      const matches = vscode.window.terminals.filter((terminal) => {
+        const value = terminal.shellIntegration && terminal.shellIntegration.cwd || terminal.creationOptions && terminal.creationOptions.cwd;
+        const terminalCwd = typeof value === "string" ? value : value && value.fsPath;
+        return terminalCwd && path.resolve(terminalCwd) === path.resolve(cwd);
+      });
+      if (matches.length === 1) { matches[0].show(false); return true; }
+    }
+    if (vscode.window.showInformationMessage) {
+      void vscode.window.showInformationMessage("This session's terminal is outside this VS Code window. Continue in its agent window.");
     }
     return false;
   }

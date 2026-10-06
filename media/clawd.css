@@ -22,126 +22,41 @@ button {
 
 .clawd-shell {
   display: grid;
-  grid-template-rows: auto minmax(168px, 34vh) auto auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(168px, min(34vh, 260px)) auto minmax(0, 1fr) auto;
   min-width: 0;
   height: 100vh;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 8px 4px;
+[hidden] {
+  display: none !important;
 }
 
-.icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--vscode-icon-foreground);
-  background: transparent;
-  cursor: pointer;
-}
-
-.icon-button:hover {
-  background: var(--vscode-toolbar-hoverBackground);
-}
-
-.icon-button:focus-visible {
+button:focus-visible,
+summary:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 1px;
-}
-
-.icon {
-  display: block;
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
-#themeBtn .theme-icon {
-  display: none;
-}
-
-body:not([data-next-theme]) #themeBtn .theme-icon-calico,
-body[data-next-theme="calico"] #themeBtn .theme-icon-calico,
-body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
-  display: block;
-}
-
-#dndBtn .bell-off {
-  display: none;
-}
-
-#runtimeBtn .runtime-play {
-  display: none;
-}
-
-.is-runtime-paused #runtimeBtn .runtime-pause {
-  display: none;
-}
-
-.is-runtime-paused #runtimeBtn .runtime-play {
-  display: block;
-}
-
-.is-integrations-disabled #installBtn {
-  color: var(--vscode-testing-iconUnset, var(--vscode-icon-foreground));
-}
-
-.is-integrations-disabled #disableIntegrationsBtn {
-  display: none;
-}
-
-.is-dnd #dndBtn .bell-on {
-  display: none;
-}
-
-.is-dnd #dndBtn .bell-off {
-  display: block;
 }
 
 .pet-stage {
   position: relative;
   min-height: 168px;
-  margin: 0 8px;
+  margin: 8px 12px 0;
   overflow: hidden;
   cursor: pointer;
-  border-radius: 6px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 70%, transparent), transparent 74%),
-    var(--vscode-sideBar-background);
 }
 
 .pet-stage.is-dragging {
   cursor: grabbing;
 }
 
-.pet-stage::after {
-  content: "";
-  position: absolute;
-  left: 12%;
-  right: 12%;
-  bottom: 18px;
-  height: 1px;
-  background: var(--vscode-sideBar-border);
-  opacity: 0.8;
+.pet-stage.is-pet-disabled {
+  cursor: default;
 }
 
-.pet-shadow {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  width: min(110px, 58%);
-  height: 12px;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--vscode-foreground) 16%, transparent);
-  filter: blur(5px);
+.pet-stage:focus-visible,
+.session-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .pet-container {
@@ -166,7 +81,8 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
 }
 
 .pet-asset svg,
-.pet-asset img {
+.pet-asset img,
+.pet-asset canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -176,87 +92,107 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
 }
 
 .pet-asset.fade-in {
-  animation: pet-in 160ms ease-out both;
+  animation: pet-in var(--pet-fade-duration, 140ms) ease-out both;
+}
+
+.pet-asset.is-retiring {
+  pointer-events: none;
+  animation: pet-out var(--pet-fade-duration, 140ms) ease-out both;
+}
+
+body[data-theme="calico"] .pet-asset,
+body[data-theme="neobjuk"] .pet-asset {
+  image-rendering: auto;
 }
 
 @keyframes pet-in {
-  from { opacity: 0; translate: 0 4px; }
-  to { opacity: 1; translate: 0 0; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.status-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-  padding: 8px;
-  border-top: 1px solid var(--vscode-sideBar-border);
-  border-bottom: 1px solid var(--vscode-sideBar-border);
+@keyframes pet-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
-.eyebrow {
+.is-reduced-motion .pet-asset,
+.is-reduced-motion .pet-asset * {
+  animation: none !important;
+  transition: none !important;
+}
+
+.is-view-hidden .pet-asset,
+.is-view-hidden .pet-asset * {
+  animation-play-state: paused !important;
+}
+
+.activity {
+  min-width: 0;
+  padding: 4px 16px 18px;
+  text-align: center;
+}
+
+.activity-label {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.activity-note {
+  margin-top: 4px;
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
-  line-height: 15px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
-.status-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 18px;
+.activity-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 
 .permissions {
   display: grid;
-  gap: 8px;
-  padding: 8px;
+  gap: 10px;
+  padding: 0 12px 12px;
 }
 
-.sessions-wrap {
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--vscode-sideBar-border);
+.permissions:empty,
+.sessions:empty {
+  display: none;
 }
 
 .sessions {
   display: grid;
-  gap: 6px;
-  padding: 8px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  gap: 2px;
+  padding: 0 8px 8px;
   align-content: start;
-  scrollbar-width: thin;
 }
 
-.sessions::-webkit-scrollbar {
+.activity-content::-webkit-scrollbar {
   width: 8px;
 }
 
-.sessions::-webkit-scrollbar-thumb {
+.activity-content::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background);
   border-radius: 4px;
 }
 
-.sessions::-webkit-scrollbar-thumb:hover {
+.activity-content::-webkit-scrollbar-thumb:hover {
   background: var(--vscode-scrollbarSlider-hoverBackground);
-}
-
-.permission-card,
-.session-row {
-  border: 1px solid var(--vscode-sideBar-border);
-  border-radius: 6px;
-  background: var(--vscode-editor-background);
 }
 
 .permission-card {
   display: grid;
   gap: 8px;
-  padding: 9px;
-  border-left-width: 3px;
-  border-left-style: solid;
-  border-left-color: transparent;
+  padding: 10px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-sideBar-border, transparent));
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
 }
 
 .permission-head,
@@ -304,24 +240,10 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
 }
 
 .session-row {
-  border-left-width: 3px;
-  border-left-style: solid;
-  border-left-color: transparent;
   align-items: center;
+  border-radius: 3px;
+  background: transparent;
 }
-
-.permission-card[data-agent="claude-code"],
-.session-row[data-agent="claude-code"] { border-left-color: #E8784D; }
-.permission-card[data-agent="codex"],
-.session-row[data-agent="codex"]        { border-left-color: #6B7AFF; }
-.permission-card[data-agent="gemini-cli"],
-.session-row[data-agent="gemini-cli"]   { border-left-color: #4285F4; }
-.permission-card[data-agent="cursor-agent"],
-.session-row[data-agent="cursor-agent"] { border-left-color: #9B8AFB; }
-.permission-card[data-agent="copilot-cli"],
-.session-row[data-agent="copilot-cli"]  { border-left-color: #2DBA4E; }
-.permission-card[data-agent="opencode"],
-.session-row[data-agent="opencode"]     { border-left-color: #A3A3A3; }
 
 .idle-group {
   display: contents;
@@ -901,7 +823,7 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
 }
 
 .session-row {
-  padding: 6px 8px;
+  padding: 8px;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -916,8 +838,25 @@ body[data-next-theme="clawd"] #themeBtn .theme-icon-clawd {
 }
 
 .toast-log {
-  min-height: 20px;
-  padding: 0 8px 8px;
+  padding: 8px 12px;
   color: var(--vscode-descriptionForeground);
   font-size: 11px;
+}
+
+.toast-log:empty {
+  display: none;
+}
+
+@media (max-height: 440px) {
+  .clawd-shell {
+    grid-template-rows: 132px auto minmax(0, 1fr) auto;
+  }
+
+  .pet-stage {
+    min-height: 0;
+  }
+
+  .activity {
+    padding-bottom: 10px;
+  }
 }

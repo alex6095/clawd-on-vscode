@@ -2,6 +2,7 @@ const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 
 const CLAWD_SERVER_ID = "clawd-on-vscode";
 const CLAWD_SERVER_HEADER = "x-clawd-server";
@@ -11,10 +12,79 @@ const SERVER_PORTS = Array.from({ length: SERVER_PORT_COUNT }, (_, i) => DEFAULT
 const STATE_PATH = "/state";
 const PERMISSION_PATH = "/permission";
 const RUNTIME_CONFIG_PATH = path.join(os.homedir(), ".clawd-on-vscode", "runtime.json");
+const RUNTIME_TTL_MS = 90000;
 
 function normalizePort(value) {
   const port = Number(value);
-  return Number.isInteger(port) && SERVER_PORTS.includes(port) ? port : null;
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+function runtimePaths(options = {}) {
+  const dir = options.runtimeDir || process.env.CLAWD_RUNTIME_DIR || path.dirname(options.runtimeConfigPath || RUNTIME_CONFIG_PATH);
+  return { dir, registryDir: path.join(dir, "runtimes"), legacyPath: options.runtimeConfigPath || path.join(dir, "runtime.json") };
+}
+
+function safeInstanceId(value) {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value) ? value : null;
+}
+
+function processAlive(pid, options) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (typeof options.isProcessAlive === "function") return options.isProcessAlive(pid);
+  try { (options.processKill || process.kill)(pid, 0); return true; }
+  catch (err) { return err.code === "EPERM"; }
+}
+
+function normalizeRoots(roots) {
+  return Array.isArray(roots) ? [...new Set(roots.filter(root => typeof root === "string" && path.isAbsolute(root)).map(root => path.resolve(root)))] : [];
+}
+
+function readRuntimeEntries(options = {}) {
+  const { registryDir } = runtimePaths(options);
+  const now = typeof options.now === "function" ? options.now() : Date.now();
+  let files;
+  try { files = fs.readdirSync(registryDir); } catch { return []; }
+  return files.filter(file => file.endsWith(".json")).flatMap(file => {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(registryDir, file), "utf8"));
+      const instanceId = safeInstanceId(raw.instanceId);
+      const port = normalizePort(raw.port);
+      if (raw.app !== CLAWD_SERVER_ID || !instanceId || !port || raw.expiresAt <= now || !processAlive(raw.pid, options)) return [];
+      return [{ ...raw, instanceId, port, visible: raw.visible === true, workspaceRoots: normalizeRoots(raw.workspaceRoots) }];
+    } catch { return []; }
+  }).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function rootMatchLength(cwd, roots) {
+  if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return -1;
+  const target = path.resolve(cwd);
+  let length = -1;
+  for (const root of roots) {
+    const relative = path.relative(root, target);
+    if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) length = Math.max(length, root.length);
+  }
+  return length;
+}
+
+// A hook belongs to the most specific open workspace. An empty window can
+// observe unmatched sessions; unrelated workspaces must never get its approvals.
+function selectRuntimeEntries(options = {}, entries = readRuntimeEntries(options)) {
+  // Heartbeats only prove liveness. Within an equally specific workspace,
+  // an open approval UI owns the session ahead of a newer hidden window.
+  const preferred = candidates => [...candidates].sort((a, b) => Number(b.visible === true) - Number(a.visible === true)
+    || b.updatedAt - a.updatedAt || a.instanceId.localeCompare(b.instanceId)).slice(0, 1);
+  const requestedId = options.instanceId || options.instance_id;
+  if (requestedId) return entries.filter(entry => entry.instanceId === requestedId);
+  if (typeof options.cwd === "string" && options.cwd) {
+    const matches = entries.map(entry => ({ entry, length: rootMatchLength(options.cwd, entry.workspaceRoots) })).filter(match => match.length >= 0);
+    if (matches.length) {
+      const longest = Math.max(...matches.map(match => match.length));
+      return preferred(matches.filter(match => match.length === longest).map(match => match.entry));
+    }
+    return preferred(entries.filter(entry => entry.workspaceRoots.length === 0));
+  }
+  const blank = entries.filter(entry => entry.workspaceRoots.length === 0);
+  return preferred(blank.length ? blank : entries);
 }
 
 const HOST_PREFIX_PATH = path.join(os.homedir(), ".claude", "hooks", "clawd-host-prefix");
@@ -25,9 +95,11 @@ function readHostPrefix() {
   return prefix || os.hostname().split(".")[0];
 }
 
-function readRuntimeConfig() {
+function readRuntimeConfig(options = {}) {
+  const entries = readRuntimeEntries(options);
+  if (entries.length) return selectRuntimeEntries(options, entries)[0] || null;
   try {
-    const raw = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_PATH, "utf8"));
+    const raw = JSON.parse(fs.readFileSync(runtimePaths(options).legacyPath, "utf8"));
     if (!raw || typeof raw !== "object") return null;
     const port = normalizePort(raw.port);
     return port ? { port } : null;
@@ -36,22 +108,25 @@ function readRuntimeConfig() {
   }
 }
 
-function readRuntimePort() {
-  const config = readRuntimeConfig();
+function readRuntimePort(options = {}) {
+  const config = readRuntimeConfig(options);
   return config ? config.port : null;
 }
 
-function writeRuntimeConfig(port) {
+function writeRuntimeConfig(port, options = {}) {
   const safePort = normalizePort(port);
   if (!safePort) return false;
-
-  const dir = path.dirname(RUNTIME_CONFIG_PATH);
-  const tmpPath = path.join(dir, `.runtime.${process.pid}.${Date.now()}.tmp`);
-  const body = JSON.stringify({ app: CLAWD_SERVER_ID, port: safePort }, null, 2);
-  fs.mkdirSync(dir, { recursive: true });
+  const instanceId = safeInstanceId(options.instanceId) || `pid-${process.pid}`;
+  const { registryDir } = runtimePaths(options);
+  const now = typeof options.now === "function" ? options.now() : Date.now();
+  const target = path.join(registryDir, `${instanceId}.json`);
+  const tmpPath = path.join(registryDir, `.${instanceId}.${crypto.randomBytes(6).toString("hex")}.tmp`);
+  const body = JSON.stringify({ app: CLAWD_SERVER_ID, instanceId, port: safePort, pid: options.pid || process.pid,
+    workspaceRoots: normalizeRoots(options.workspaceRoots), visible: options.visible === true, updatedAt: now, expiresAt: now + (options.ttlMs || RUNTIME_TTL_MS) }, null, 2);
   try {
-    fs.writeFileSync(tmpPath, body, "utf8");
-    fs.renameSync(tmpPath, RUNTIME_CONFIG_PATH);
+    fs.mkdirSync(registryDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(tmpPath, body, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(tmpPath, target);
     return true;
   } catch {
     try { fs.unlinkSync(tmpPath); } catch {}
@@ -59,7 +134,8 @@ function writeRuntimeConfig(port) {
   }
 }
 
-function clearRuntimeConfig(filePath = RUNTIME_CONFIG_PATH) {
+function clearRuntimeConfig(options = {}) {
+  const filePath = typeof options === "string" ? options : path.join(runtimePaths(options).registryDir, `${safeInstanceId(options.instanceId) || `pid-${process.pid}`}.json`);
   try {
     fs.unlinkSync(filePath);
     return true;
@@ -74,7 +150,7 @@ function getPortCandidates(preferredPort, options = {}) {
   const runtimePort = normalizePort(
     Object.prototype.hasOwnProperty.call(options, "runtimePort")
       ? options.runtimePort
-      : readRuntimePort()
+      : readRuntimePort(options)
   );
   const add = (value) => {
     const port = normalizePort(value);
@@ -94,9 +170,9 @@ function splitPortCandidates(preferredPort, options = {}) {
   const runtimePort = normalizePort(
     Object.prototype.hasOwnProperty.call(options, "runtimePort")
       ? options.runtimePort
-      : readRuntimePort()
+      : readRuntimePort(options)
   );
-  const all = getPortCandidates(preferredPort, { runtimePort });
+  const all = getPortCandidates(preferredPort, { ...options, runtimePort });
   const direct = [];
   const fallback = [];
   const directSeen = new Set();
@@ -141,6 +217,8 @@ function isClawdResponse(res, body) {
 }
 
 function probePort(port, timeoutMs, callback, options = {}) {
+  let settled = false;
+  const finish = (ok) => { if (!settled) { settled = true; callback(ok); } };
   const httpGet = options.httpGet || http.get;
   const req = httpGet(
     { hostname: "127.0.0.1", port, path: STATE_PATH, timeout: timeoutMs },
@@ -150,18 +228,20 @@ function probePort(port, timeoutMs, callback, options = {}) {
       res.on("data", (chunk) => {
         if (body.length < 256) body += chunk;
       });
-      res.on("end", () => callback(isClawdResponse(res, body)));
+      res.on("end", () => finish(res.statusCode === 200 && isClawdResponse(res, body)));
     }
   );
 
-  req.on("error", () => callback(false));
+  req.on("error", () => finish(false));
   req.on("timeout", () => {
     req.destroy();
-    callback(false);
+    finish(false);
   });
 }
 
 function postStateToPort(port, payload, timeoutMs, callback, options = {}) {
+  let settled = false;
+  const finish = (ok) => { if (!settled) { settled = true; callback(ok, port); } };
   const httpRequest = options.httpRequest || http.request;
   const req = httpRequest(
     {
@@ -176,9 +256,14 @@ function postStateToPort(port, payload, timeoutMs, callback, options = {}) {
       timeout: timeoutMs,
     },
     (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        finish(false);
+        return;
+      }
       if (readHeader(res, CLAWD_SERVER_HEADER) === CLAWD_SERVER_ID) {
         res.resume();
-        callback(true, port);
+        finish(true);
         return;
       }
 
@@ -187,21 +272,23 @@ function postStateToPort(port, payload, timeoutMs, callback, options = {}) {
       res.on("data", (chunk) => {
         if (responseBody.length < 256) responseBody += chunk;
       });
-      res.on("end", () => callback(isClawdResponse(res, responseBody), port));
+      res.on("end", () => finish(isClawdResponse(res, responseBody)));
     }
   );
 
-  req.on("error", () => callback(false, port));
+  req.on("error", () => finish(false));
   req.on("timeout", () => {
     req.destroy();
-    callback(false, port);
+    finish(false);
   });
   req.end(payload);
 }
 
 function discoverClawdPort(options, callback) {
+  options = options || {};
   const timeoutMs = options && options.timeoutMs ? options.timeoutMs : 100;
-  const ports = getPortCandidates(options && options.preferredPort, options);
+  const entries = readRuntimeEntries(options);
+  const ports = entries.length ? selectRuntimeEntries(options, entries).map(entry => entry.port) : getPortCandidates(options.preferredPort, options);
   const probe = options && options.probePort ? options.probePort : probePort;
   let index = 0;
 
@@ -225,9 +312,16 @@ function discoverClawdPort(options, callback) {
 }
 
 function postStateToRunningServer(body, options, callback) {
+  options = options || {};
+  let parsedBody;
+  try { parsedBody = typeof body === "string" ? JSON.parse(body) : body; } catch { parsedBody = {}; }
+  const routingOptions = { ...options, cwd: options.cwd || parsedBody.cwd, instanceId: options.instanceId || parsedBody.instance_id };
   const timeoutMs = options && options.timeoutMs ? options.timeoutMs : 100;
   const payload = typeof body === "string" ? body : JSON.stringify(body);
-  const { direct, fallback } = splitPortCandidates(options && options.preferredPort, options);
+  const entries = readRuntimeEntries(routingOptions);
+  const { direct, fallback } = entries.length
+    ? { direct: selectRuntimeEntries(routingOptions, entries).map(entry => entry.port), fallback: [] }
+    : splitPortCandidates(options.preferredPort, routingOptions);
   const probe = options && options.probePort ? options.probePort : probePort;
   const post = options && options.postStateToPort ? options.postStateToPort : postStateToPort;
   let directIndex = 0;
@@ -356,6 +450,7 @@ module.exports = {
   DEFAULT_SERVER_PORT,
   PERMISSION_PATH,
   RUNTIME_CONFIG_PATH,
+  RUNTIME_TTL_MS,
   SERVER_PORTS,
   STATE_PATH,
   buildPermissionUrl,
@@ -366,6 +461,8 @@ module.exports = {
   probePort,
   readHostPrefix,
   readRuntimePort,
+  readRuntimeEntries,
+  selectRuntimeEntries,
   resolveNodeBin,
   splitPortCandidates,
   postStateToPort,

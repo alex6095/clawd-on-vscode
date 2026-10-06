@@ -5,6 +5,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const {
   CLAWD_SERVER_HEADER,
   CLAWD_SERVER_ID,
@@ -12,6 +13,8 @@ const {
   clearRuntimeConfig,
   getPortCandidates,
   readRuntimePort,
+  readRuntimeEntries,
+  selectRuntimeEntries,
   writeRuntimeConfig,
 } = require("../hooks/server-config");
 
@@ -28,6 +31,19 @@ function shouldBypassCCBubble(ctx, toolName, agentId) {
 function shouldBypassOpencodeBubble(ctx) {
   if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
   return !ctx.isAgentPermissionsEnabled("opencode");
+}
+
+function permissionMatchesEvent(perm, data, sid, agentId) {
+  if (perm.sessionId !== sid || (perm.agentId && perm.agentId !== agentId)) return false;
+  if (data.turn_id && perm.turnId && data.turn_id !== perm.turnId) return false;
+  if (data.child_agent_id && perm.childAgentId && data.child_agent_id !== perm.childAgentId) return false;
+  if (data.event === "SessionEnd") return true;
+  if (data.event === "SubagentStop") return !!data.child_agent_id && data.child_agent_id === perm.childAgentId;
+  if (data.event === "Stop" || data.event === "StopFailure") return !perm.childAgentId || !!data.child_agent_id;
+  const toolCallId = data.tool_call_id || data.tool_use_id;
+  if (toolCallId) return toolCallId === perm.toolCallId;
+  if (data.request_id) return data.request_id === perm.requestId || data.request_id === perm.opencodeRequestId;
+  return !perm.toolCallId && !perm.requestId && !!data.tool_name && data.tool_name === perm.toolName;
 }
 
 // Truncate large string values in objects (recursive) — bubble only needs a preview
@@ -167,6 +183,8 @@ const createHttpServer = ctx.createHttpServer || http.createServer.bind(http);
 const setImmediateFn = ctx.setImmediate || setImmediate;
 const setTimeoutFn = ctx.setTimeout || setTimeout;
 const clearTimeoutFn = ctx.clearTimeout || clearTimeout;
+const setIntervalFn = ctx.setInterval || setInterval;
+const clearIntervalFn = ctx.clearInterval || clearInterval;
 const nowFn = typeof ctx.now === "function" ? ctx.now : Date.now;
 const clearRuntimeConfigFn = ctx.clearRuntimeConfig || clearRuntimeConfig;
 const getPortCandidatesFn = ctx.getPortCandidates || getPortCandidates;
@@ -180,6 +198,53 @@ let activeServerPort = null;
 let settingsWatcher = null;
 let settingsWatchDebounceTimer = null;
 let settingsWatchLastSyncTime = 0;
+let startPromise = null;
+let rejectStart = null;
+let stopped = false;
+let registryHeartbeat = null;
+const instanceId = ctx.runtimeInstanceId || crypto.randomUUID();
+const registryOptions = { ...ctx.runtimeRegistryOptions, instanceId, workspaceRoots: ctx.workspaceRoots || [] };
+
+function getRegistrationOptions() {
+  return { ...registryOptions, workspaceRoots: ctx.workspaceRoots || [],
+    visible: typeof ctx.isPermissionUIAvailable === "function" && ctx.isPermissionUIAvailable() === true };
+}
+
+function refreshRuntimeRegistration() {
+  if (stopped || !activeServerPort) return false;
+  return writeRuntimeConfigFn(activeServerPort, getRegistrationOptions());
+}
+
+function sendNativeFallback(res) {
+  if (res.writableEnded || res.destroyed) return;
+  res.writeHead(200, { "Content-Type": "application/json", [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+  res.end("{}");
+}
+
+function deferPermissionEntry(entry, reason) {
+  if (typeof ctx.deferPermissionEntry === "function") return ctx.deferPermissionEntry(entry, reason);
+  if (entry.res && entry.abortHandler) entry.res.removeListener("close", entry.abortHandler);
+  if (entry.res) sendNativeFallback(entry.res);
+  // Legacy desktop cleanup still closes its bubble. A finished response will
+  // not receive the old deny reply, and an opencode request stays native.
+  if (!entry.isOpencode && typeof ctx.resolvePermissionEntry === "function") ctx.resolvePermissionEntry(entry, "deny", reason);
+  else {
+    const index = ctx.pendingPermissions.indexOf(entry);
+    if (index >= 0) ctx.pendingPermissions.splice(index, 1);
+    if (entry.bubble && typeof entry.bubble.close === "function") entry.bubble.close();
+  }
+}
+
+function ownsEvent(data) {
+  if (data.instance_id && data.instance_id !== instanceId) return false;
+  const cwd = data.cwd || (ctx.sessions && ctx.sessions.get(data.session_id)?.cwd);
+  if (!cwd && !data.instance_id) return true; // legacy hooks lack routing fields
+  const entries = readRuntimeEntries(registryOptions);
+  if (!entries.length) return true;
+  const owner = selectRuntimeEntries({ ...registryOptions, instanceId: data.instance_id, cwd }, entries)[0];
+  return !!owner && owner.instanceId === instanceId;
+}
+
 
 function shouldManageClaudeHooks() {
   return ctx.manageClaudeHooksAutomatically !== false;
@@ -289,7 +354,8 @@ function syncOpencodePlugin() {
 }
 
 function sendStateHealthResponse(res) {
-  const body = JSON.stringify({ ok: true, app: CLAWD_SERVER_ID, port: getHookServerPort() });
+  const registration = getRegistrationOptions();
+  const body = JSON.stringify({ ok: true, app: CLAWD_SERVER_ID, port: getHookServerPort(), instanceId, workspaceRoots: registration.workspaceRoots, visible: registration.visible });
   res.writeHead(200, {
     "Content-Type": "application/json",
     [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID,
@@ -350,8 +416,13 @@ function startClaudeSettingsWatcher() {
 const MAX_STATE_BODY_BYTES = 4096;
 
 function startHttpServer() {
+  if (startPromise) return startPromise;
+  stopped = false;
+  let resolveStart;
+  startPromise = new Promise((resolve, reject) => { resolveStart = resolve; rejectStart = reject; });
+  try {
   httpServer = createHttpServer((req, res) => {
-    if (req.method === "GET" && req.url === "/state") {
+    if (req.method === "GET" && (req.url === "/state" || req.url === "/health")) {
       sendStateHealthResponse(res);
     } else if (req.method === "POST" && req.url === "/state") {
       let body = "";
@@ -371,6 +442,12 @@ function startHttpServer() {
         }
         try {
           const data = JSON.parse(body);
+          if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("expected state object");
+          if (!ownsEvent(data)) {
+            res.writeHead(409, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+            res.end("event belongs to another window");
+            return;
+          }
           const { state, svg, session_id, event } = data;
           let display_svg;
           if (data.display_svg === null) display_svg = null;
@@ -406,10 +483,10 @@ function startHttpServer() {
               res.end("mini states require svg override");
               return;
             }
-            if (event === "PostToolUse" || event === "PostToolUseFailure" || event === "Stop") {
+            if (event === "PostToolUse" || event === "PostToolUseFailure" || event === "Stop" || event === "StopFailure" || event === "SessionEnd" || event === "SubagentStop") {
               for (const perm of [...ctx.pendingPermissions]) {
-                if (perm.sessionId === sid) {
-                  ctx.resolvePermissionEntry(perm, "deny", "User answered in terminal");
+                if (permissionMatchesEvent(perm, data, sid, agentId)) {
+                  deferPermissionEntry(perm, "Request completed in native client");
                 }
               }
             }
@@ -428,6 +505,17 @@ function startHttpServer() {
                 headless,
                 displayHint: display_svg,
                 sessionTitle,
+                childAgentId: data.child_agent_id,
+                turnId: data.turn_id,
+                toolCallId: data.tool_call_id || data.tool_use_id,
+                requestId: data.request_id,
+                source: data.source || "hook",
+                metaOnly: data.meta_only === true,
+                model: data.model,
+                agentType: data.agent_type,
+                taskId: data.task_id,
+                teammateName: data.teammate_name,
+                teamName: data.team_name,
               });
             }
             res.writeHead(200, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
@@ -455,13 +543,14 @@ function startHttpServer() {
       req.on("end", () => {
         if (tooLarge) {
           ctx.permLog("SKIPPED: permission payload too large");
-          ctx.sendPermissionResponse(res, "deny", "Permission request too large for Clawd bubble; answer in terminal");
+          sendNativeFallback(res);
           return;
         }
 
         let data;
         try {
           data = JSON.parse(body);
+          if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("expected permission object");
         } catch {
           res.writeHead(400);
           res.end("bad json");
@@ -469,6 +558,15 @@ function startHttpServer() {
         }
 
         try {
+          if (!ownsEvent(data)) {
+            res.writeHead(409, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+            res.end("event belongs to another window");
+            return;
+          }
+          if (typeof ctx.isPermissionUIAvailable === "function" && !ctx.isPermissionUIAvailable()) {
+            sendNativeFallback(res);
+            return;
+          }
           // ── opencode branch ──
           // opencode plugin (agents/opencode.js) posts fire-and-forget. We
           // always 200 ACK immediately; the user's decision routes through
@@ -550,6 +648,10 @@ function startHttpServer() {
               opencodeBridgeToken: bridgeToken,
               opencodeAlwaysCandidates: alwaysCandidates,
               opencodePatterns: patterns,
+              toolCallId: data.tool_call_id || data.tool_use_id || null,
+              requestId,
+              childAgentId: data.child_agent_id || null,
+              turnId: data.turn_id || null,
             };
             ctx.pendingPermissions.push(permEntry);
             // Play notification animation on the pet body so the bubble doesn't
@@ -569,10 +671,9 @@ function startHttpServer() {
               // until the opencode TUI hits its own timeout (minutes).
               // Pop the ghost entry and send an immediate reject so the
               // TUI unblocks and the user can re-answer in the terminal.
-              ctx.permLog(`opencode bubble failed: ${bubbleErr && bubbleErr.message} — reject via bridge`);
+              ctx.permLog(`opencode bubble failed: ${bubbleErr && bubbleErr.message} — native fallback`);
               const popIdx = ctx.pendingPermissions.indexOf(permEntry);
               if (popIdx !== -1) ctx.pendingPermissions.splice(popIdx, 1);
-              ctx.replyOpencodePermission({ bridgeUrl, bridgeToken, requestId, reply: "reject", toolName });
             }
             return;
           }
@@ -585,7 +686,7 @@ function startHttpServer() {
           // silent drop (95cbfc7).
           if (ctx.doNotDisturb) {
             ctx.permLog("CC DND → destroy connection, CC chat fallback");
-            res.destroy();
+            sendNativeFallback(res);
             return;
           }
 
@@ -596,7 +697,7 @@ function startHttpServer() {
           const ccAgentId = typeof data.agent_id === "string" && data.agent_id ? data.agent_id : "claude-code";
           if (typeof ctx.isAgentEnabled === "function" && !ctx.isAgentEnabled(ccAgentId)) {
             ctx.permLog(`${ccAgentId} disabled → destroy connection, chat fallback`);
-            res.destroy();
+            sendNativeFallback(res);
             return;
           }
 
@@ -612,23 +713,32 @@ function startHttpServer() {
           const permAgentId = typeof data.agent_id === "string" && data.agent_id ? data.agent_id : "claude-code";
           const rawSuggestions = Array.isArray(data.permission_suggestions) ? data.permission_suggestions : [];
           const suggestions = normalizePermissionSuggestions(rawSuggestions);
+          const eventIdentity = { toolCallId: data.tool_call_id || data.tool_use_id || null,
+            requestId: data.request_id || null, childAgentId: data.child_agent_id || null, turnId: data.turn_id || null,
+            source: data.source || "hook", cwd: data.cwd || "", sourcePid: data.source_pid || null, agentPid: data.agent_pid || null,
+            pidChain: Array.isArray(data.pid_chain) ? data.pid_chain.filter(pid => Number.isInteger(pid) && pid > 0) : null,
+            editor: data.editor === "code" || data.editor === "cursor" ? data.editor : null };
 
           const existingSession = ctx.sessions.get(sessionId);
           if (existingSession && existingSession.headless) {
             ctx.permLog(`SKIPPED: headless session=${sessionId}`);
-            ctx.sendPermissionResponse(res, "deny", "Non-interactive session; auto-denied");
+            sendNativeFallback(res);
             return;
           }
 
           if (ctx.PASSTHROUGH_TOOLS.has(toolName)) {
             ctx.permLog(`PASSTHROUGH: tool=${toolName} session=${sessionId}`);
-            ctx.sendPermissionResponse(res, "allow");
+            sendNativeFallback(res);
             return;
           }
 
           if (shouldBypassCCBubble(ctx, toolName, permAgentId)) {
             ctx.permLog(`${permAgentId} bubbles disabled → destroy connection, chat fallback (tool=${toolName})`);
-            res.destroy();
+            sendNativeFallback(res);
+            return;
+          }
+          if (ctx.hideBubbles) {
+            sendNativeFallback(res);
             return;
           }
 
@@ -637,13 +747,13 @@ function startHttpServer() {
           if (toolName === "AskUserQuestion") {
             const elicitationInput = normalizeElicitationToolInput(toolInput);
             ctx.permLog(`ELICITATION: tool=${toolName} session=${sessionId}`);
-            ctx.updateSession(sessionId, "notification", "Elicitation", { agentId: "claude-code" });
+            ctx.updateSession(sessionId, "notification", "Elicitation", { agentId: permAgentId, ...eventIdentity });
 
-            const permEntry = { res, abortHandler: null, suggestions: [], sessionId, bubble: null, hideTimer: null, toolName, toolInput: elicitationInput, resolvedSuggestion: null, createdAt: Date.now(), isElicitation: true, agentId: permAgentId };
+            const permEntry = { res, abortHandler: null, suggestions: [], sessionId, bubble: null, hideTimer: null, toolName, toolInput: elicitationInput, resolvedSuggestion: null, createdAt: Date.now(), isElicitation: true, agentId: permAgentId, ...eventIdentity };
             const abortHandler = () => {
               if (res.writableFinished) return;
               ctx.permLog("abortHandler fired (elicitation)");
-              ctx.resolvePermissionEntry(permEntry, "deny", "Client disconnected");
+              deferPermissionEntry(permEntry, "Client disconnected");
             };
             permEntry.abortHandler = abortHandler;
             res.on("close", abortHandler);
@@ -652,11 +762,11 @@ function startHttpServer() {
             return;
           }
 
-          const permEntry = { res, abortHandler: null, suggestions, sessionId, bubble: null, hideTimer: null, toolName, toolInput, resolvedSuggestion: null, createdAt: Date.now(), agentId: permAgentId };
+          const permEntry = { res, abortHandler: null, suggestions, sessionId, bubble: null, hideTimer: null, toolName, toolInput, resolvedSuggestion: null, createdAt: Date.now(), agentId: permAgentId, ...eventIdentity };
           const abortHandler = () => {
             if (res.writableFinished) return;
             ctx.permLog("abortHandler fired");
-            ctx.resolvePermissionEntry(permEntry, "deny", "Client disconnected");
+            deferPermissionEntry(permEntry, "Client disconnected");
           };
           permEntry.abortHandler = abortHandler;
           res.on("close", abortHandler);
@@ -668,7 +778,7 @@ function startHttpServer() {
           // and the Elicitation branch above. state.js:581 has a special
           // PermissionRequest branch that setStates notification without
           // mutating session state — so working/thinking is preserved for resolve.
-          ctx.updateSession(sessionId, "notification", "PermissionRequest", { agentId: permAgentId });
+          ctx.updateSession(sessionId, "notification", "PermissionRequest", { agentId: permAgentId, ...eventIdentity });
 
           if (ctx.hideBubbles) {
             ctx.permLog(`bubble hidden: tool=${toolName} session=${sessionId} — terminal only`);
@@ -691,10 +801,15 @@ function startHttpServer() {
       res.end();
     }
   });
+  } catch (err) {
+    rejectStart(err); rejectStart = null;
+    return startPromise;
+  }
 
   const listenPorts = getPortCandidatesFn();
   let listenIndex = 0;
   httpServer.on("error", (err) => {
+    if (stopped) return;
     if (!activeServerPort && err.code === "EADDRINUSE" && listenIndex < listenPorts.length - 1) {
       listenIndex++;
       httpServer.listen(listenPorts[listenIndex], "127.0.0.1");
@@ -707,17 +822,25 @@ function startHttpServer() {
     } else {
       console.error("HTTP server error:", err.message);
     }
+    if (!activeServerPort && rejectStart) { rejectStart(err); rejectStart = null; }
+    if (typeof ctx.onServerError === "function") ctx.onServerError(err);
   });
 
   httpServer.on("listening", () => {
-    activeServerPort = listenPorts[listenIndex];
-    writeRuntimeConfigFn(activeServerPort);
+    if (stopped) { httpServer.close(); return; }
+    activeServerPort = listenPorts[listenIndex] || httpServer.address().port;
+    refreshRuntimeRegistration();
+    registryHeartbeat = setIntervalFn(refreshRuntimeRegistration, 30000);
+    if (registryHeartbeat && typeof registryHeartbeat.unref === "function") registryHeartbeat.unref();
+    resolveStart(activeServerPort);
+    rejectStart = null;
     console.log(`Clawd state server listening on 127.0.0.1:${activeServerPort}`);
     // Defer hook/plugin registration off the startup path. Each sync call
     // reads+parses+writes a config JSON (50-150ms cumulative on slow disks),
     // and all five operate on independent files for independent agents, so
     // none of them need to block the HTTP server from accepting traffic.
     setImmediateFn(() => {
+      if (stopped) return;
       if (shouldManageClaudeHooks()) {
         syncClawdHooks();
         startClaudeSettingsWatcher();
@@ -730,18 +853,28 @@ function startHttpServer() {
     });
   });
 
-  httpServer.listen(listenPorts[listenIndex], "127.0.0.1");
+  try {
+    if (!listenPorts.length) throw new Error("No Clawd server ports configured");
+    httpServer.listen(listenPorts[listenIndex], "127.0.0.1");
+  } catch (err) { rejectStart(err); rejectStart = null; }
+  return startPromise;
 }
 
 function cleanup() {
-  clearRuntimeConfigFn();
+  stopped = true;
+  if (rejectStart) { rejectStart(new Error("Clawd server stopped before listening")); rejectStart = null; }
+  if (registryHeartbeat) { clearIntervalFn(registryHeartbeat); registryHeartbeat = null; }
+  clearRuntimeConfigFn(registryOptions);
   stopClaudeSettingsWatcher();
   if (httpServer) httpServer.close();
+  activeServerPort = null;
 }
 
 return {
   startHttpServer,
   getHookServerPort,
+  refreshRuntimeRegistration,
+  getInstanceId: () => instanceId,
   syncClawdHooks,
   syncGeminiHooks,
   syncCursorHooks,
@@ -760,4 +893,5 @@ module.exports.__test = {
   shouldBypassOpencodeBubble,
   normalizePermissionSuggestions,
   normalizeElicitationToolInput,
+  permissionMatchesEvent,
 };

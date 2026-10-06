@@ -1,0 +1,464 @@
+{
+  "schemaVersion": 1,
+  "name": "넙죽이 · Neobjuk",
+  "author": "alex6095",
+  "version": "1.0.0",
+  "description": "Animated SVG poses reproduced from the user-provided KAIST Neobjuk mascot reference.",
+  "license": "Mascot artwork © KAIST. See ASSETS-LICENSE; graphic assets are excluded from the extension's MIT code license.",
+  "attribution": {
+    "character": "넙죽이 / Neobjuk",
+    "rightsHolder": "KAIST",
+    "reference": "User-provided KAIST mascot expression chart",
+    "implementation": "Vector paths and animations authored for this extension"
+  },
+  "preview": "neobjuk-neutral.svg",
+  "viewBox": {
+    "x": 0,
+    "y": 0,
+    "width": 240,
+    "height": 240
+  },
+  "layout": {
+    "contentBox": {
+      "x": 32,
+      "y": 48,
+      "width": 176,
+      "height": 162
+    },
+    "centerX": 120,
+    "baselineY": 210,
+    "visibleHeightRatio": 0.64,
+    "baselineBottomRatio": 0.08
+  },
+  "eyeTracking": {
+    "enabled": true,
+    "states": [
+      "idle",
+      "pose-neutral"
+    ],
+    "eyeRatioX": 0.5,
+    "eyeRatioY": 0.404,
+    "maxOffset": 2,
+    "trackingLayers": {
+      "pupils": {
+        "ids": [
+          "nb-pupils"
+        ],
+        "maxOffset": 2,
+        "ease": 0.13
+      }
+    }
+  },
+  "states": {
+    "idle": [
+      "neobjuk-neutral.svg"
+    ],
+    "thinking": [
+      "neobjuk-heart-glasses.svg"
+    ],
+    "working": [
+      "neobjuk-typing.svg"
+    ],
+    "juggling": [
+      "neobjuk-dancing.svg"
+    ],
+    "attention": [
+      "neobjuk-excited.svg"
+    ],
+    "notification": [
+      "neobjuk-rainbow.svg"
+    ],
+    "error": [
+      "neobjuk-furious.svg"
+    ],
+    "sweeping": [
+      "neobjuk-tidying.svg"
+    ],
+    "carrying": [
+      "neobjuk-heart-glasses.svg"
+    ],
+    "yawning": [
+      "neobjuk-yawning.svg"
+    ],
+    "dozing": [
+      "neobjuk-coffee.svg"
+    ],
+    "collapsing": [
+      "neobjuk-loving-sleep.svg"
+    ],
+    "sleeping": [
+      "neobjuk-sleeping.svg"
+    ],
+    "waking": [
+      "neobjuk-waking.svg"
+    ],
+    "pose-neutral": [
+      "neobjuk-neutral.svg"
+    ],
+    "pose-excited": [
+      "neobjuk-excited.svg"
+    ],
+    "pose-shy": [
+      "neobjuk-shy.svg"
+    ],
+    "pose-kiss": [
+      "neobjuk-kiss.svg"
+    ],
+    "pose-dancing": [
+      "neobjuk-dancing.svg"
+    ],
+    "pose-rainbow": [
+      "neobjuk-rainbow.svg"
+    ],
+    "pose-annoyed": [
+      "neobjuk-annoyed.svg"
+    ],
+    "pose-furious": [
+      "neobjuk-furious.svg"
+    ],
+    "pose-cool": [
+      "neobjuk-cool.svg"
+    ],
+    "pose-crying": [
+      "neobjuk-crying.svg"
+    ],
+    "pose-tilted-heart": [
+      "neobjuk-tilted-heart.svg"
+    ],
+    "pose-heart-glasses": [
+      "neobjuk-heart-glasses.svg"
+    ],
+    "pose-sad": [
+      "neobjuk-sad.svg"
+    ],
+    "pose-coffee": [
+      "neobjuk-coffee.svg"
+    ],
+    "pose-seated-heart": [
+      "neobjuk-seated-heart.svg"
+    ],
+    "pose-sleeping": [
+      "neobjuk-sleeping.svg"
+    ],
+    "pose-loving-sleep": [
+      "neobjuk-loving-sleep.svg"
+    ]
+  },
+  "variants": {
+    "default": {
+      "name": "넙죽이 · 기본",
+      "description": "The center reference pose: wide shallow head, small circular eyes, high continuous shoulders and short rounded feet.",
+      "preview": "neobjuk-neutral.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-neutral.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "excited": {
+      "name": "넙죽이 · 신남",
+      "description": "Huge eyes and broad clasped hands connected to the same high shoulders.",
+      "preview": "neobjuk-excited.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-excited.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "shy": {
+      "name": "넙죽이 · 수줍음",
+      "description": "Blushing clasped hands and crossed feet share the neutral pose's head, torso and shoulders.",
+      "preview": "neobjuk-shy.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "kiss": {
+      "name": "넙죽이 · 하트 보내기",
+      "description": "One shoulder-connected arm brings a kiss to the cheek; the whole character leans together.",
+      "preview": "neobjuk-kiss.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "dancing": {
+      "name": "넙죽이 · 뒷모습 춤",
+      "description": "A rounded back leans over one bent leg while both paddles remain rooted underneath the head.",
+      "preview": "neobjuk-dancing.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-dancing.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "rainbow": {
+      "name": "넙죽이 · 반짝 축하",
+      "description": "The same shallow head and connected torso celebrate with rainbow glints, a large rim-attached star and pink kicked-up legs.",
+      "preview": "neobjuk-rainbow.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-rainbow.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "annoyed": {
+      "name": "넙죽이 · 삐침",
+      "description": "A continuous open-arm silhouette with low narrowed eyes and rosy cheeks.",
+      "preview": "neobjuk-annoyed.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-annoyed.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "furious": {
+      "name": "넙죽이 · 화남",
+      "description": "A red shallow head and continuous high-shoulder body glow warmly while the narrowed eyes remain low on the face.",
+      "preview": "neobjuk-furious.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-furious.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "cool": {
+      "name": "넙죽이 · 집중",
+      "description": "Sunglasses move with the shallow head while crossed forearms remain joined to the high shoulders.",
+      "preview": "neobjuk-cool.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-cool.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "crying": {
+      "name": "넙죽이 · 눈물",
+      "description": "Curled around one rounded knee, with a broad oval forearm across the chest and a tearful head tilted at the attached neck.",
+      "preview": "neobjuk-crying.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-crying.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "tilted-heart": {
+      "name": "넙죽이 · 누워서 하트",
+      "description": "The shallow head joins a folded sideways body; a compact raised hand pivots at its transformed canonical shoulder.",
+      "preview": "neobjuk-tilted-heart.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-tilted-heart.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "heart-glasses": {
+      "name": "넙죽이 · 하트와 안경",
+      "description": "Small round glasses follow the head; one rounded cheek arm adjusts them while the other cups a heart at mid-chest.",
+      "preview": "neobjuk-heart-glasses.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-heart-glasses.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "sad": {
+      "name": "넙죽이 · 시무룩",
+      "description": "Seated with broad rounded folded knees, high shoulders and a purple-shaded shallow head.",
+      "preview": "neobjuk-sad.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-sad.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "coffee": {
+      "name": "넙죽이 · 커피와 졸림",
+      "description": "Low heavy eyelids, full hanging paddles and bent short brown feet sit beside a tall coffee cup.",
+      "preview": "neobjuk-coffee.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-coffee.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "seated-heart": {
+      "name": "넙죽이 · 앉아서 하트",
+      "description": "A broad foreground folded leg and a rounded far knee join a compact seated torso beneath the neutral shallow head.",
+      "preview": "neobjuk-seated-heart.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "sleeping": {
+      "name": "넙죽이 · 잠",
+      "description": "The neutral shallow head lies diagonally, connected to a compact folded body, with slim sleepy glints.",
+      "preview": "neobjuk-sleeping.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-sleeping.svg",
+          "duration": 6500
+        }
+      ]
+    },
+    "loving-sleep": {
+      "name": "넙죽이 · 이불과 꿈",
+      "description": "The same folded body sleeps with black eye slits under a pink blanket and drifting hearts.",
+      "preview": "neobjuk-loving-sleep.svg",
+      "idleAnimations": [
+        {
+          "file": "neobjuk-loving-sleep.svg",
+          "duration": 6500
+        }
+      ]
+    }
+  },
+  "workingTiers": [
+    {
+      "minSessions": 1,
+      "file": "neobjuk-typing.svg"
+    }
+  ],
+  "jugglingTiers": [
+    {
+      "minSessions": 1,
+      "file": "neobjuk-dancing.svg"
+    }
+  ],
+  "idleAnimations": [
+    {
+      "file": "neobjuk-seated-heart.svg",
+      "duration": 6500
+    },
+    {
+      "file": "neobjuk-cool.svg",
+      "duration": 6500
+    },
+    {
+      "file": "neobjuk-shy.svg",
+      "duration": 6500
+    }
+  ],
+  "displayHintMap": {
+    "clawd-working-thinking.svg": "neobjuk-heart-glasses.svg",
+    "clawd-working-debugger.svg": "neobjuk-cool.svg",
+    "clawd-idle-reading.svg": "neobjuk-seated-heart.svg",
+    "clawd-working-typing.svg": "neobjuk-typing.svg",
+    "clawd-working-building.svg": "neobjuk-typing.svg",
+    "clawd-working-juggling.svg": "neobjuk-dancing.svg",
+    "clawd-working-conducting.svg": "neobjuk-dancing.svg",
+    "clawd-working-sweeping.svg": "neobjuk-tidying.svg",
+    "clawd-working-carrying.svg": "neobjuk-heart-glasses.svg"
+  },
+  "timings": {
+    "minDisplay": {
+      "attention": 3500,
+      "notification": 3000,
+      "error": 4000,
+      "working": 1000,
+      "thinking": 1000,
+      "sweeping": 3000,
+      "carrying": 3000
+    },
+    "autoReturn": {
+      "attention": 3500,
+      "notification": 3000,
+      "error": 4000,
+      "carrying": 3000,
+      "sweeping": 300000
+    },
+    "yawnDuration": 3200,
+    "collapseDuration": 1600,
+    "wakeDuration": 1600,
+    "deepSleepTimeout": 600000,
+    "mouseIdleTimeout": 20000,
+    "mouseSleepTimeout": 60000
+  },
+  "hitBoxes": {
+    "default": {
+      "x": 39,
+      "y": 55,
+      "w": 164,
+      "h": 155
+    },
+    "wide": {
+      "x": 24,
+      "y": 35,
+      "w": 193,
+      "h": 180
+    },
+    "sleeping": {
+      "x": 35,
+      "y": 93,
+      "w": 198,
+      "h": 124
+    }
+  },
+  "wideHitboxFiles": [
+    "neobjuk-rainbow.svg",
+    "neobjuk-furious.svg"
+  ],
+  "sleepingHitboxFiles": [
+    "neobjuk-sleeping.svg",
+    "neobjuk-loving-sleep.svg",
+    "neobjuk-tilted-heart.svg"
+  ],
+  "reactions": {
+    "drag": {
+      "file": "neobjuk-excited.svg"
+    },
+    "clickLeft": {
+      "file": "neobjuk-shy.svg",
+      "duration": 3200
+    },
+    "clickRight": {
+      "file": "neobjuk-kiss.svg",
+      "duration": 3200
+    },
+    "annoyed": {
+      "file": "neobjuk-annoyed.svg",
+      "duration": 3500
+    },
+    "double": {
+      "files": [
+        "neobjuk-rainbow.svg",
+        "neobjuk-tilted-heart.svg"
+      ],
+      "duration": 3500
+    }
+  },
+  "miniMode": {
+    "supported": false
+  },
+  "sounds": {
+    "complete": "complete.mp3",
+    "confirm": "confirm.mp3"
+  },
+  "objectScale": {
+    "widthRatio": 1,
+    "heightRatio": 1,
+    "offsetX": 0,
+    "offsetY": 0
+  },
+  "transitions": {}
+}

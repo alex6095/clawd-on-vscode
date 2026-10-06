@@ -2,7 +2,7 @@
   "name": "clawd-on-vscode",
   "displayName": "Clawd on VS Code",
   "description": "A whimsical Clawd sidebar pet that reacts to coding-agent activity in local and Remote-SSH VS Code workspaces.",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "icon": "resources/icons/app_icon.png",
   "author": {
     "name": "alex6095",
@@ -59,9 +59,11 @@
   ],
   "main": "./src/extension.js",
   "scripts": {
-    "check": "node --check src/*.js media/*.js test/*.js",
+    "check": "node scripts/check-syntax.js",
     "test": "node --test test/*.test.js",
-    "package": "vsce package --allow-missing-repository"
+    "package": "vsce package --allow-missing-repository",
+    "vscode:prepublish": "npm run check",
+    "test:vscode": "node scripts/vscode-smoke.js"
   },
   "contributes": {
     "viewsContainers": {
@@ -86,39 +88,89 @@
     "menus": {
       "view/title": [
         {
-          "command": "clawd.installIntegrations",
-          "when": "view == clawd.petView && clawd.integrations.enabled",
+          "command": "clawd.setTheme",
+          "when": "view == clawd.petView",
           "group": "navigation@1"
         },
         {
-          "command": "clawd.disableIntegrations",
-          "when": "view == clawd.petView && clawd.integrations.enabled",
-          "group": "navigation@2"
-        },
-        {
-          "command": "clawd.enableIntegrations",
-          "when": "view == clawd.petView && !clawd.integrations.enabled",
-          "group": "navigation@2"
-        },
-        {
-          "command": "clawd.toggleDnd",
-          "when": "view == clawd.petView",
-          "group": "navigation@3"
-        },
-        {
           "command": "clawd.pauseRuntime",
-          "when": "view == clawd.petView && !clawd.runtime.paused",
-          "group": "navigation@4"
+          "when": "view == clawd.petView && !clawd.runtime.paused && clawd.integrations.enabled",
+          "group": "navigation@2"
         },
         {
           "command": "clawd.resumeRuntime",
-          "when": "view == clawd.petView && clawd.runtime.paused",
-          "group": "navigation@4"
+          "when": "view == clawd.petView && (clawd.runtime.paused || !clawd.integrations.enabled)",
+          "group": "navigation@2"
         },
         {
-          "command": "clawd.setTheme",
+          "command": "clawd.muteNotifications",
+          "when": "view == clawd.petView && !clawd.dnd",
+          "group": "1_activity@1"
+        },
+        {
+          "command": "clawd.unmuteNotifications",
+          "when": "view == clawd.petView && clawd.dnd",
+          "group": "1_activity@1"
+        },
+        {
+          "command": "clawd.previewAnimation",
           "when": "view == clawd.petView",
-          "group": "navigation@5"
+          "group": "2_character@1"
+        },
+        {
+          "command": "clawd.installIntegrations",
+          "when": "view == clawd.petView",
+          "group": "3_connections@1"
+        },
+        {
+          "command": "clawd.showConnectionHelp",
+          "when": "view == clawd.petView",
+          "group": "3_connections@2"
+        },
+        {
+          "command": "clawd.restartRuntime",
+          "when": "view == clawd.petView",
+          "group": "4_troubleshooting@1"
+        },
+        {
+          "command": "clawd.showDiagnostics",
+          "when": "view == clawd.petView",
+          "group": "4_troubleshooting@2"
+        },
+        {
+          "command": "clawd.uninstallIntegrations",
+          "when": "view == clawd.petView",
+          "group": "4_troubleshooting@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "clawd.disableIntegrations",
+          "when": "false"
+        },
+        {
+          "command": "clawd.enableIntegrations",
+          "when": "false"
+        },
+        {
+          "command": "clawd.toggleDnd",
+          "when": "false"
+        },
+        {
+          "command": "clawd.pauseRuntime",
+          "when": "!clawd.runtime.paused && clawd.integrations.enabled"
+        },
+        {
+          "command": "clawd.resumeRuntime",
+          "when": "clawd.runtime.paused || !clawd.integrations.enabled"
+        },
+        {
+          "command": "clawd.muteNotifications",
+          "when": "!clawd.dnd"
+        },
+        {
+          "command": "clawd.unmuteNotifications",
+          "when": "clawd.dnd"
         }
       ]
     },
@@ -131,7 +183,7 @@
       },
       {
         "command": "clawd.installIntegrations",
-        "title": "Install Agent Integrations",
+        "title": "Set Up Agent Connections…",
         "category": "Clawd",
         "icon": "$(plug)"
       },
@@ -143,25 +195,25 @@
       },
       {
         "command": "clawd.setTheme",
-        "title": "Switch Character",
+        "title": "Choose Character…",
         "category": "Clawd",
-        "icon": "$(replace)"
+        "icon": "$(smiley)"
       },
       {
         "command": "clawd.restartRuntime",
-        "title": "Restart Runtime",
+        "title": "Restart Clawd",
         "category": "Clawd",
         "icon": "$(debug-restart)"
       },
       {
         "command": "clawd.pauseRuntime",
-        "title": "Pause Runtime",
+        "title": "Pause Clawd",
         "category": "Clawd",
         "icon": "$(debug-pause)"
       },
       {
         "command": "clawd.resumeRuntime",
-        "title": "Resume Runtime",
+        "title": "Resume Clawd",
         "category": "Clawd",
         "icon": "$(debug-start)"
       },
@@ -176,6 +228,42 @@
         "title": "Enable Agent Integrations",
         "category": "Clawd",
         "icon": "$(plug)"
+      },
+      {
+        "command": "clawd.previewAnimation",
+        "title": "Preview Animation…",
+        "category": "Clawd",
+        "icon": "$(play)"
+      },
+      {
+        "command": "clawd.showDiagnostics",
+        "title": "Open Diagnostics",
+        "category": "Clawd",
+        "icon": "$(output)"
+      },
+      {
+        "command": "clawd.uninstallIntegrations",
+        "title": "Remove Agent Connections…",
+        "category": "Clawd",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "clawd.muteNotifications",
+        "title": "Quiet Notifications",
+        "category": "Clawd",
+        "icon": "$(bell-slash)"
+      },
+      {
+        "command": "clawd.unmuteNotifications",
+        "title": "Turn Notifications On",
+        "category": "Clawd",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "clawd.showConnectionHelp",
+        "title": "Agent Connection Status…",
+        "category": "Clawd",
+        "icon": "$(info)"
       }
     ],
     "configuration": {
@@ -186,9 +274,15 @@
           "default": "clawd",
           "enum": [
             "clawd",
-            "calico"
+            "calico",
+            "neobjuk"
           ],
-          "description": "The Clawd pet theme shown in the sidebar."
+          "description": "The Clawd pet theme shown in the sidebar.",
+          "enumDescriptions": [
+            "Clawd",
+            "Calico",
+            "KAIST Neobjuk (넙죽이)"
+          ]
         },
         "clawd.autoStartRuntime": {
           "type": "boolean",
@@ -203,12 +297,57 @@
         "clawd.integrations.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Allow Clawd agent hooks/plugins to be installed and automatically synced."
+          "description": "Enable selected agent connections. Use Set Up Agent Connections to install hooks."
         },
         "clawd.sound.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Play Clawd notification sounds in the webview."
+        },
+        "clawd.integrations.agents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex",
+              "gemini-cli",
+              "cursor-agent",
+              "codebuddy",
+              "kiro-cli",
+              "opencode"
+            ]
+          },
+          "default": [
+            "claude-code",
+            "codex"
+          ],
+          "uniqueItems": true,
+          "description": "Agents to monitor and offer in the hook installer."
+        },
+        "clawd.codex.logFallback": {
+          "type": "boolean",
+          "default": true,
+          "description": "Observe local Codex logs when native hooks have not been seen. Logs never infer approval requests."
+        },
+        "clawd.sessions.scope": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "all"
+          ],
+          "default": "workspace",
+          "description": "Filter observed session logs to this workspace or all local sessions. Native hooks always route to their matching window; an empty window receives unmatched hooks."
+        },
+        "clawd.animation.reducedMotion": {
+          "type": "string",
+          "enum": [
+            "system",
+            "on",
+            "off"
+          ],
+          "default": "system",
+          "description": "Reduce movement and honor system accessibility preferences."
         }
       }
     }
@@ -220,5 +359,12 @@
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@vscode/vsce": "^3.6.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Clawd starts local hook listeners and reads agent session logs. Open a trusted workspace to enable it."
+    },
+    "virtualWorkspaces": false
   }
 }

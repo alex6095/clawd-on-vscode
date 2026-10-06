@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-function loadRuntimeWithFakes(initialConfig = {}) {
+function loadRuntimeWithFakes(initialConfig = {}, options = {}) {
   const counters = {
     serverInit: 0,
     serverStart: 0,
@@ -63,6 +63,9 @@ function loadRuntimeWithFakes(initialConfig = {}) {
   Module._load = function patchedLoad(request, parent, isMain) {
     const normalized = String(request).replace(/\\/g, "/");
     if (request === "vscode") return fakeVscode;
+    if (normalized.endsWith("/vendor/clawd/hooks/codex-install")) {
+      return { getCodexHookStatus: () => ({ installed: false }) };
+    }
     if (normalized.endsWith("/vendor/clawd/src/state")) {
       return (ctx) => {
         counters.stateInit++;
@@ -87,7 +90,7 @@ function loadRuntimeWithFakes(initialConfig = {}) {
       return () => {
         counters.serverInit++;
         return {
-          startHttpServer() { counters.serverStart++; },
+          startHttpServer() { counters.serverStart++; return options.startGate; },
           cleanup() { counters.serverCleanup++; },
           getHookServerPort() { return 23333; },
         };
@@ -129,6 +132,7 @@ function loadRuntimeWithFakes(initialConfig = {}) {
     counters,
     config,
     posts,
+    vscode: fakeVscode,
     restore() {
       Module._load = originalLoad;
       delete require.cache[runtimePath];
@@ -175,7 +179,7 @@ test("pause stops monitors, closes runtime, clears config-visible permissions", 
 
     assert.equal(result.message, "Clawd runtime paused.");
     assert.equal(harness.config.get("runtime.enabled"), false);
-    assert.equal(harness.counters.monitorStops, 2);
+    assert.equal(harness.counters.monitorStops, 1);
     assert.equal(harness.counters.stateCleanup, 1);
     assert.equal(harness.counters.serverCleanup, 1);
     assert.equal(destroyed, true);
@@ -194,9 +198,149 @@ test("restart from paused enables and starts the runtime", async () => {
     assert.equal(harness.config.get("runtime.enabled"), true);
     assert.equal(harness.counters.serverInit, 1);
     assert.equal(harness.counters.serverStart, 1);
-    assert.equal(harness.counters.monitorStarts, 2);
+    assert.equal(harness.counters.monitorStarts, 1);
     assert.equal(harness.posts.some((post) => post.type === "init" && post.payload.paused === false), true);
   } finally {
     harness.restore();
   }
+});
+
+test("concurrent starts create only one server and one selected monitor", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    await Promise.all([harness.runtime.start(), harness.runtime.start(), harness.runtime.start()]);
+    assert.equal(harness.counters.serverStart, 1);
+    assert.equal(harness.counters.monitorStarts, 1);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("single Resume action restores legacy-disabled integrations and observation", async () => {
+  const harness = loadRuntimeWithFakes({ "runtime.enabled": false, "integrations.enabled": false });
+  try {
+    await harness.runtime.resume();
+    assert.equal(harness.config.get("integrations.enabled"), true);
+    assert.equal(harness.runtime.isAgentEnabled("codex"), true);
+    assert.equal(harness.counters.monitorStarts, 1);
+    assert.equal(harness.posts.at(-1).payload.connectionState, "connected");
+    await harness.runtime.toggleDnd();
+    assert.equal(harness.counters.context.get("clawd.dnd"), true);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("failed startup publishes a disconnected status instead of an endless startup", async () => {
+  const harness = loadRuntimeWithFakes({}, { startGate: Promise.resolve().then(() => { throw new Error("bind failed"); }) });
+  try {
+    await assert.rejects(harness.runtime.start(), /bind failed/);
+    assert.equal(harness.posts.at(-1).payload.connectionState, "disconnected");
+    assert.equal(harness.runtime.started, false);
+    assert.equal(harness.runtime.diagnostics().runtime, "disconnected");
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("quiet notifications can change while paused without resuming activity", async () => {
+  const harness = loadRuntimeWithFakes({ "runtime.enabled": false });
+  try {
+    await harness.runtime.toggleDnd();
+    assert.equal(harness.runtime.doNotDisturb, true);
+    assert.equal(harness.counters.context.get("clawd.dnd"), true);
+    assert.equal(harness.counters.serverStart, 0);
+    assert.equal(harness.config.get("runtime.enabled"), false);
+    assert.equal(harness.posts.at(-1).payload.dnd, true);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("disabling the runtime during server startup closes the eventual listener", async () => {
+  let release;
+  const startGate = new Promise((resolve) => { release = resolve; });
+  const harness = loadRuntimeWithFakes({}, { startGate });
+  try {
+    const pending = harness.runtime.start();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.counters.serverStart, 1);
+    harness.config.set("runtime.enabled", false);
+    release();
+    await pending;
+    assert.equal(harness.runtime.started, false);
+    assert.equal(harness.counters.serverCleanup, 1);
+    assert.equal(harness.counters.monitorStarts, 0);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("handoff and sidebar shutdown reply neutrally instead of leaving approval pending", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    let response;
+    const entry = { _clawdId: "approval", sessionId: "codex:a", res: {
+      removeListener() {}, writeHead(status) { assert.equal(status, 200); }, end(body) { response = JSON.parse(body); },
+    } };
+    harness.runtime.pendingPermissions.push(entry);
+    harness.runtime.decidePermission("approval", "deny-and-focus");
+    assert.deepEqual(response, {});
+    assert.equal(harness.runtime.pendingPermissions.length, 0);
+  } finally { harness.restore(); }
+});
+
+test("Codex approval never emits Claude-only updatedPermissions fields", () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    let response;
+    const entry = { _clawdId: "approval", agentId: "codex", resolvedSuggestion: { type: "setMode", mode: "bypassPermissions" }, res: {
+      writeHead() {}, end(body) { response = JSON.parse(body); },
+    } };
+    harness.runtime.pendingPermissions.push(entry);
+    harness.runtime.resolvePermissionEntry(entry, "allow");
+    assert.deepEqual(response, { hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } } });
+  } finally { harness.restore(); }
+});
+
+test("workspace filtering respects directory boundaries and native hooks override log fallback", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    harness.vscode.workspace.workspaceFolders = [{ uri: { fsPath: path.resolve("/project") } }];
+    await harness.runtime.start();
+    const updates = [];
+    harness.runtime.state.updateSession = (...args) => updates.push(args);
+    harness.runtime.ingestSession("codex:1", "thinking", "UserPromptSubmit", { agentId: "codex", cwd: path.resolve("/project/sub"), sourcePid: 42 });
+    harness.runtime.ingestSession("codex:1", "idle", "Log", { agentId: "codex", cwd: path.resolve("/project") }, "log");
+    harness.runtime.ingestSession("codex:2", "thinking", "Log", { agentId: "codex", cwd: path.resolve("/project-other") }, "log");
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0][3].sourcePid, 42);
+    assert.equal(updates[0][3].source, "hook");
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("session terminal focus chooses the requested session PID", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    await harness.runtime.start();
+    const focused = [];
+    harness.vscode.window.terminals = [11, 22].map((pid) => ({ processId: Promise.resolve(pid), show() { focused.push(pid); } }));
+    harness.runtime.state.sessions.set("second", { sourcePid: 33, pidChain: [33, 22] });
+    assert.equal(await harness.runtime.focusTerminalForSession("second"), true);
+    assert.deepEqual(focused, [22]);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("HTTP log events preserve their source and do not disable local fallback", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    await harness.runtime.start();
+    const updates = [];
+    harness.runtime.state.updateSession = (...args) => updates.push(args);
+    harness.runtime.createServerContext().updateSession("codex:remote", "working", "PreToolUse", { agentId: "codex", source: "log" });
+    harness.runtime.ingestSession("codex:remote", "attention", "Stop", { agentId: "codex" }, "log");
+    assert.equal(updates.length, 2);
+    assert.equal(updates[0][3].source, "log");
+    assert.equal(harness.runtime.hookSessions.has("codex:remote"), false);
+  } finally { harness.runtime.dispose(); harness.restore(); }
+});
+
+test("untrusted workspaces do not start a hook server", async () => {
+  const harness = loadRuntimeWithFakes();
+  try {
+    harness.vscode.workspace.isTrusted = false;
+    await harness.runtime.start();
+    assert.equal(harness.counters.serverStart, 0);
+    assert.equal(harness.counters.monitorStarts, 0);
+  } finally { harness.restore(); }
 });

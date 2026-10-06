@@ -1,20 +1,15 @@
 "use strict";
 
 const vscode = acquireVsCodeApi();
+const svgStyleNonce = document.currentScript && (document.currentScript.nonce || document.currentScript.getAttribute("nonce"));
 
 const petStage = document.getElementById("petStage");
 const petContainer = document.getElementById("petContainer");
 const permissionsEl = document.getElementById("permissions");
 const sessionsEl = document.getElementById("sessions");
-const stateLabel = document.getElementById("stateLabel");
-const serverLabel = document.getElementById("serverLabel");
+const activityLabel = document.getElementById("activityLabel");
+const activityNote = document.getElementById("activityNote");
 const toastLog = document.getElementById("toastLog");
-const installBtn = document.getElementById("installBtn");
-const disableIntegrationsBtn = document.getElementById("disableIntegrationsBtn");
-const runtimeBtn = document.getElementById("runtimeBtn");
-const dndBtn = document.getElementById("dndBtn");
-const themeBtn = document.getElementById("themeBtn");
-const restartBtn = document.getElementById("restartBtn");
 
 let config = {};
 let themes = [];
@@ -28,6 +23,8 @@ let elicitationStates = new Map();
 let sessions = [];
 let runtimePaused = false;
 let integrationsEnabled = true;
+let connectionState = "starting";
+let notificationsQuiet = false;
 let reactionTimer = null;
 let tracking = null;
 let layerTracking = null;
@@ -38,6 +35,17 @@ let layerTargetDx = 0;
 let layerTargetDy = 0;
 let dragState = null;
 let suppressNextClick = false;
+let suppressClickTimer = null;
+let currentAssetKey = null;
+let pendingAssetKey = null;
+let hostVisible = true;
+let reducedMotion = false;
+let preview = null;
+let previewTimer = null;
+const svgCache = new Map();
+const motionQuery = typeof window.matchMedia === "function"
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : null;
 
 const DRAG_THRESHOLD = 4;
 
@@ -57,27 +65,79 @@ function fileUri(file) {
   return config.assetMap && config.assetMap[name] ? config.assetMap[name] : null;
 }
 
-function setStatus(state, port) {
-  stateLabel.textContent = runtimePaused ? "Paused" : (state || "idle");
-  if (port !== undefined) serverLabel.textContent = port ? `:${port}` : "off";
+function activityText(state) {
+  const labels = {
+    idle: "Ready when you are",
+    thinking: "Thinking…",
+    working: "At work",
+    juggling: "At work",
+    carrying: "At work",
+    attention: "All done",
+    sweeping: "Organizing context…",
+    notification: "Needs your attention",
+    happy: "All done",
+    error: "Something needs attention",
+    sleeping: "Resting",
+    yawning: "Getting sleepy",
+    dozing: "Resting",
+    collapsing: "Resting",
+    waking: "Waking up…",
+    paused: "Paused",
+  };
+  return labels[state] || "Ready when you are";
 }
 
-function updateRuntimeButton() {
-  if (!runtimeBtn) return;
-  const label = runtimePaused ? "Resume Clawd runtime" : "Pause Clawd runtime";
-  runtimeBtn.title = label;
-  runtimeBtn.setAttribute("aria-label", label);
+function animationLabel(state) {
+  return String(state || "animation").replace(/^pose-/, "").replace(/[-_]/g, " ");
 }
 
-function updateInstallButton() {
-  if (!installBtn) return;
-  const label = integrationsEnabled ? "Install/sync agent integrations" : "Enable agent integrations";
-  installBtn.title = label;
-  installBtn.setAttribute("aria-label", label);
-  if (disableIntegrationsBtn) {
-    disableIntegrationsBtn.hidden = !integrationsEnabled;
-    disableIntegrationsBtn.title = "Disable agent integrations";
-    disableIntegrationsBtn.setAttribute("aria-label", "Disable agent integrations");
+function updateActivity() {
+  let label;
+  let note = "";
+  if (preview) {
+    label = "Previewing animation";
+    note = animationLabel(preview.state);
+  } else if (runtimePaused || !integrationsEnabled || connectionState === "paused") {
+    label = "Paused";
+    note = "Resume Clawd from the title bar.";
+  } else if (connectionState === "starting") {
+    label = "Waking up…";
+  } else if (connectionState === "disconnected") {
+    label = "Connection interrupted";
+    note = "Open Agent Connection Status in the menu.";
+  } else if (permissions.size) {
+    label = permissions.size === 1 ? "Needs your approval" : `${permissions.size} approvals waiting`;
+  } else {
+    label = activityText(currentState);
+  }
+  if (notificationsQuiet && !note) note = "Quiet notifications · Approvals stay in your agent.";
+  activityLabel.textContent = label;
+  activityNote.textContent = note;
+  activityNote.hidden = !note;
+  activityLabel.dataset.status = preview ? "preview" : (runtimePaused || !integrationsEnabled ? "paused" : connectionState);
+  updatePetInteraction();
+}
+
+function petIsInteractive() {
+  return !runtimePaused && integrationsEnabled && connectionState === "connected" && animationsVisible();
+}
+
+function updatePetInteraction() {
+  const enabled = petIsInteractive();
+  const themeName = (themes.find((theme) => theme.id === themeId) || {}).name || themeId;
+  const unavailable = runtimePaused || !integrationsEnabled || connectionState === "paused"
+    ? "Paused"
+    : connectionState === "starting" ? "Waking up…" : connectionState === "disconnected" ? "Connection interrupted" : activityText(currentState);
+  const description = preview ? `Previewing ${animationLabel(preview.state)}` : enabled ? activityText(currentState) : unavailable;
+  const action = enabled ? ` ${currentState === "idle" ? "Click for a reaction. " : ""}Press Enter or Space to show the agent terminal.` : "";
+  petStage.setAttribute("aria-label", `${themeName}: ${description}.${action}`);
+  petStage.setAttribute("aria-disabled", String(!enabled));
+  petStage.tabIndex = enabled ? 0 : -1;
+  petStage.classList.toggle("is-pet-disabled", !enabled);
+  if (!enabled) {
+    cancelPetDrag();
+    applyEyeMove(0, 0);
+    stopLayerTrackingLoop();
   }
 }
 
@@ -89,9 +149,97 @@ function showToast(message) {
 }
 
 function needsInlineSvg(state, file) {
-  if (!file || !file.endsWith(".svg")) return false;
-  const states = Array.isArray(config.eyeTrackingStates) ? config.eyeTrackingStates : [];
-  return states.includes(state);
+  // Inline every SVG so hidden-view and motion preferences can pause its
+  // internal CSS/SMIL animations, including non-tracking working states.
+  return !!file && file.toLowerCase().endsWith(".svg");
+}
+
+function animationsVisible() {
+  return hostVisible && !document.hidden;
+}
+
+function updateMotionPreference() {
+  const preference = config.reducedMotion || "system";
+  const wasReduced = reducedMotion;
+  reducedMotion = preference === "on" || (preference !== "off" && !!(motionQuery && motionQuery.matches));
+  document.body.classList.toggle("is-reduced-motion", reducedMotion);
+  document.body.dataset.motion = preference;
+  const svg = currentWrapper && currentWrapper.querySelector("svg");
+  if (svg) {
+    if (preference === "off") svg.setAttribute("data-force-motion", "");
+    else svg.removeAttribute("data-force-motion");
+    if (reducedMotion && typeof svg.pauseAnimations === "function") svg.pauseAnimations();
+    else if (animationsVisible() && typeof svg.unpauseAnimations === "function") svg.unpauseAnimations();
+  }
+  if (reducedMotion) {
+    applyEyeMove(0, 0);
+    stopLayerTrackingLoop();
+    freezeRaster(currentWrapper);
+  } else if (wasReduced && currentWrapper && currentWrapper.querySelector("canvas")) {
+    renderDisplayedPet({ force: true });
+  }
+}
+
+function setAnimationVisibility(visible) {
+  hostVisible = visible !== false;
+  updatePetInteraction();
+  const shown = animationsVisible();
+  document.body.classList.toggle("is-view-hidden", !shown);
+  const svg = currentWrapper && currentWrapper.querySelector("svg");
+  if (!shown) {
+    ++renderSerial; // A hidden view must not publish a stale in-flight asset.
+    pendingAssetKey = null;
+    applyEyeMove(0, 0);
+    stopLayerTrackingLoop();
+    if (svg && typeof svg.pauseAnimations === "function") svg.pauseAnimations();
+    freezeRaster(currentWrapper);
+    if (dragState) finishDrag({ pointerId: dragState.pointerId });
+  } else {
+    if (svg && !reducedMotion && typeof svg.unpauseAnimations === "function") svg.unpauseAnimations();
+    renderDisplayedPet({ force: !!(currentWrapper && currentWrapper.querySelector("canvas")) });
+  }
+}
+
+function freezeRaster(wrapper) {
+  if (!wrapper) return;
+  const img = wrapper.querySelector("img");
+  if (!img || !img.complete || !img.naturalWidth) return;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    img.replaceWith(canvas);
+    img.removeAttribute("src"); // Stop decoding the off-screen APNG.
+  } catch { /* A still image can remain visible if a canvas is unavailable. */ }
+}
+
+function renderDisplayedPet(options = {}) {
+  if (preview) return renderPet(preview.svg, preview.state, options);
+  return renderPet(currentSvg || config.idleFollowSvg, currentState, options);
+}
+
+function cancelPreview() {
+  if (previewTimer) clearTimeout(previewTimer);
+  previewTimer = null;
+  preview = null;
+}
+
+function previewAnimation(payload) {
+  if (!payload.svg || !fileUri(payload.svg)) return;
+  cancelPreview();
+  if (reactionTimer) clearTimeout(reactionTimer);
+  reactionTimer = null;
+  preview = { svg: payload.svg, state: payload.state || "preview" };
+  const duration = Number.isFinite(payload.duration) ? Math.min(30000, Math.max(500, payload.duration)) : 6000;
+  updateActivity();
+  renderDisplayedPet({ force: true });
+  previewTimer = setTimeout(() => {
+    cancelPreview();
+    updateActivity();
+    renderDisplayedPet({ force: true });
+  }, duration);
 }
 
 function getViewBox() {
@@ -168,81 +316,142 @@ function applyPetLayout(wrapper, file) {
   wrapper.style.setProperty("--pet-height", `${Math.max(24, height)}px`);
   wrapper.style.setProperty("--pet-left", `${Math.round(left * 10) / 10}px`);
   wrapper.style.setProperty("--pet-bottom", `${Math.round(bottom * 10) / 10}px`);
+  petStage.style.setProperty("--pet-floor-bottom", `${Math.max(10, rect.height * (layout.baselineBottomRatio || 0.05))}px`);
 }
 
 function relayoutPet() {
   if (currentWrapper && currentAssetName) applyPetLayout(currentWrapper, currentAssetName);
 }
 
-function getNextTheme() {
-  if (!themes.length) return null;
-  const idx = Math.max(0, themes.findIndex((theme) => theme.id === themeId));
-  return themes[(idx + 1) % themes.length] || null;
-}
-
-function updateThemeButton() {
+function updateTheme() {
   document.body.dataset.theme = themeId || "";
-  const next = getNextTheme();
-  if (next) {
-    document.body.dataset.nextTheme = next.id;
-    const label = `Switch to ${next.name || next.id}`;
-    themeBtn.title = label;
-    themeBtn.setAttribute("aria-label", label);
-  } else {
-    delete document.body.dataset.nextTheme;
-    themeBtn.title = "Switch character";
-    themeBtn.setAttribute("aria-label", "Switch character");
-  }
 }
 
 async function renderPet(file, state, options = {}) {
-  const serial = ++renderSerial;
+  // Connection changes must update accessibility even when this asset is cached.
+  updatePetInteraction();
   const name = baseName(file);
-  if (!name) return;
+  if (!name || !animationsVisible()) return;
   const uri = fileUri(name);
   if (!uri) {
+    ++renderSerial;
+    pendingAssetKey = null;
+    clearTracking();
     petContainer.textContent = "";
     currentAssetName = null;
+    currentAssetKey = null;
     currentWrapper = null;
     return;
   }
-  if (!options.force && currentAssetName === name && state === currentState) return;
-
-  clearTracking();
-  petContainer.textContent = "";
-  currentAssetName = name;
+  const key = `${uri}\n${state}`;
+  // Do this before incrementing renderSerial: repeated events while fetching
+  // the same SVG used to invalidate its own load and leave an empty stage.
+  if (!options.force && (currentAssetKey === key || pendingAssetKey === key)) return;
+  const serial = ++renderSerial;
+  pendingAssetKey = key;
 
   const wrapper = document.createElement("div");
-  wrapper.className = "pet-asset fade-in";
+  wrapper.className = "pet-asset";
   wrapper.dataset.file = name;
-  currentWrapper = wrapper;
   applyPetLayout(wrapper, name);
-  if (dragState && dragState.dragging) setDragOffset(dragState.dx, dragState.dy, wrapper);
-  petContainer.appendChild(wrapper);
 
-  if (needsInlineSvg(state, name)) {
-    try {
-      const response = await fetch(uri);
-      const text = await response.text();
-      if (serial !== renderSerial || !wrapper.isConnected) return;
+  try {
+    if (needsInlineSvg(state, name)) {
+      let loading = svgCache.get(uri);
+      if (!loading) {
+        loading = fetch(uri).then((response) => {
+          if (!response.ok) throw new Error("SVG resource unavailable");
+          return response.text();
+        });
+        svgCache.set(uri, loading);
+        loading.catch(() => svgCache.delete(uri));
+        if (svgCache.size > 80) svgCache.delete(svgCache.keys().next().value);
+      }
+      const text = await loading;
+      if (serial !== renderSerial || !animationsVisible()) return;
       wrapper.innerHTML = text;
       const svg = wrapper.querySelector("svg");
-      if (svg) {
-        svg.removeAttribute("width");
-        svg.removeAttribute("height");
-        attachTracking(svg);
+      if (!svg) throw new Error("SVG resource has no SVG root");
+      svg.removeAttribute("width");
+      svg.removeAttribute("height");
+      // The webview uses a nonce-based CSP. Chromium ignores unsafe-inline
+      // when a nonce is present, so trusted SVG styles need the script nonce.
+      for (const style of svg.querySelectorAll("style")) {
+        if (svgStyleNonce) style.setAttribute("nonce", svgStyleNonce);
       }
-    } catch {
+      if (config.reducedMotion === "off") svg.setAttribute("data-force-motion", "");
+    } else {
       const img = document.createElement("img");
       img.alt = "";
-      img.src = `${uri}${uri.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+      img.draggable = false;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("Pet image unavailable"));
+        img.src = uri;
+      });
+      if (serial !== renderSerial || !animationsVisible()) return;
       wrapper.appendChild(img);
     }
-  } else {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.src = name.endsWith(".svg") ? `${uri}${uri.includes("?") ? "&" : "?"}_t=${Date.now()}` : uri;
-    wrapper.appendChild(img);
+  } catch {
+    if (serial !== renderSerial) return;
+    pendingAssetKey = null;
+    // Keep the already rendered pet if a replacement is unavailable.
+    showToast(`Could not load ${name}.`);
+    return;
+  }
+
+  if (serial !== renderSerial || !animationsVisible()) return;
+  clearTracking();
+  const previous = currentWrapper;
+  for (const stale of petContainer.querySelectorAll(".pet-asset.is-retiring")) stale.remove();
+  currentWrapper = wrapper;
+  currentAssetName = name;
+  currentAssetKey = key;
+  pendingAssetKey = null;
+  applyPetLayout(wrapper, name); // Sidebar size may have changed during fetch.
+  if (dragState && dragState.dragging) setDragOffset(dragState.dx, dragState.dy, wrapper);
+  const svg = wrapper.querySelector("svg");
+  if (svg) {
+    const trackingStates = Array.isArray(config.eyeTrackingStates) ? config.eyeTrackingStates : [];
+    if (trackingStates.includes(state)) attachTracking(svg);
+    namespaceSvg(svg, serial);
+    if (reducedMotion && typeof svg.pauseAnimations === "function") svg.pauseAnimations();
+  }
+  petContainer.appendChild(wrapper);
+  if (reducedMotion) freezeRaster(wrapper);
+  updatePetInteraction();
+  const transition = config.transitions && config.transitions[name];
+  const fadeDuration = reducedMotion || (dragState && dragState.dragging) ? 0 : Math.min(240, Math.max(100, (transition && transition.in) || 140));
+  wrapper.style.setProperty("--pet-fade-duration", `${fadeDuration}ms`);
+  if (fadeDuration) wrapper.classList.add("fade-in");
+  if (previous) {
+    if (!fadeDuration) previous.remove();
+    else {
+      previous.style.setProperty("--pet-fade-duration", `${fadeDuration}ms`);
+      previous.classList.remove("fade-in");
+      previous.classList.add("is-retiring");
+      setTimeout(() => previous.remove(), fadeDuration);
+    }
+  }
+}
+
+function namespaceSvg(svg, serial) {
+  // Old/new assets briefly share the DOM during a crossfade. Unique IDs keep
+  // a new gradient/clip-path from resolving to a retiring asset's definition.
+  const ids = new Map();
+  for (const node of svg.querySelectorAll("[id]")) {
+    ids.set(node.id, `pet-${serial}-${node.id}`);
+    node.id = ids.get(node.id);
+  }
+  const replaceId = (value) => value.replace(/#([A-Za-z_][\w:.-]*)/g, (match, id) => ids.has(id) ? `#${ids.get(id)}` : match);
+  for (const node of [svg, ...svg.querySelectorAll("*")]) {
+    for (const attr of Array.from(node.attributes || [])) {
+      if (attr.name === "id") continue;
+      if (attr.name === "aria-labelledby" || attr.name === "aria-describedby") {
+        node.setAttribute(attr.name, attr.value.split(/\s+/).map((id) => ids.get(id) || id).join(" "));
+      } else if (attr.value.includes("#")) node.setAttribute(attr.name, replaceId(attr.value));
+    }
+    if (node.tagName.toLowerCase() === "style") node.textContent = replaceId(node.textContent);
   }
 }
 
@@ -290,14 +499,16 @@ function attachTracking(svg) {
 }
 
 function clearTracking() {
-  if (layerAnimFrame) {
-    cancelAnimationFrame(layerAnimFrame);
-    layerAnimFrame = null;
-  }
+  stopLayerTrackingLoop();
   tracking = null;
   layerTracking = null;
   layerTargetDx = 0;
   layerTargetDy = 0;
+}
+
+function stopLayerTrackingLoop() {
+  if (layerAnimFrame) cancelAnimationFrame(layerAnimFrame);
+  layerAnimFrame = null;
 }
 
 function escapeCssIdent(value) {
@@ -315,40 +526,51 @@ function wrapTrackingNode(svg, node) {
 }
 
 function startLayerTrackingLoop() {
-  if (layerAnimFrame) return;
+  if (layerAnimFrame || reducedMotion || !animationsVisible()) return;
 
   const tick = () => {
-    if (!layerTracking) {
+    if (!layerTracking || reducedMotion || !animationsVisible()) {
       layerAnimFrame = null;
       return;
     }
 
     const themeMax = (config.eyeTracking && config.eyeTracking.maxOffset) || 20;
+    let moving = false;
     for (const layer of Object.values(layerTracking)) {
       const scale = layer.maxOffset / themeMax;
       const tx = layerTargetDx * scale;
       const ty = layerTargetDy * scale;
       layer.x += (tx - layer.x) * layer.ease;
       layer.y += (ty - layer.y) * layer.ease;
-      if (tx === 0 && ty === 0 && Math.abs(layer.x) < 0.01 && Math.abs(layer.y) < 0.01) {
-        layer.x = 0;
-        layer.y = 0;
+      if (Math.abs(tx - layer.x) < 0.03 && Math.abs(ty - layer.y) < 0.03) {
+        layer.x = tx;
+        layer.y = ty;
+      } else {
+        moving = true;
       }
       const x = Math.round(layer.x * 4) / 4;
       const y = Math.round(layer.y * 4) / 4;
       for (const wrapper of layer.wrappers) wrapper.setAttribute("transform", `translate(${x}, ${y})`);
     }
 
-    layerAnimFrame = requestAnimationFrame(tick);
+    layerAnimFrame = moving ? requestAnimationFrame(tick) : null;
   };
 
   layerAnimFrame = requestAnimationFrame(tick);
 }
 
 function applyEyeMove(dx, dy) {
+  if (reducedMotion || !animationsVisible()) { dx = 0; dy = 0; }
   if (layerTracking) {
     layerTargetDx = dx;
     layerTargetDy = dy;
+    if (reducedMotion || !animationsVisible()) {
+      for (const layer of Object.values(layerTracking)) {
+        layer.x = layer.y = 0;
+        for (const wrapper of layer.wrappers) wrapper.setAttribute("transform", "translate(0, 0)");
+      }
+      return;
+    }
     startLayerTrackingLoop();
     return;
   }
@@ -365,10 +587,13 @@ function applyEyeMove(dx, dy) {
 }
 
 function updateEyeFromPointer(event) {
+  if (!petIsInteractive() || reducedMotion || (dragState && dragState.dragging)) return;
   const maxOffset = (config.eyeTracking && config.eyeTracking.maxOffset) || 3;
   const rect = petStage.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height * 0.56;
+  const petRect = currentWrapper ? currentWrapper.getBoundingClientRect() : rect;
+  const eye = config.eyeTracking || {};
+  const cx = petRect.left + petRect.width * (Number.isFinite(eye.eyeRatioX) ? eye.eyeRatioX : 0.5);
+  const cy = petRect.top + petRect.height * (Number.isFinite(eye.eyeRatioY) ? eye.eyeRatioY : 0.56);
   const rawX = (event.clientX - cx) / Math.max(1, rect.width / 2);
   const rawY = (event.clientY - cy) / Math.max(1, rect.height / 2);
   const dx = Math.max(-maxOffset, Math.min(maxOffset, rawX * maxOffset));
@@ -377,13 +602,29 @@ function updateEyeFromPointer(event) {
 }
 
 function isPointOverPet(event) {
-  if (!currentWrapper) return false;
-  const rect = currentWrapper.getBoundingClientRect();
-  const pad = 6;
+  const rect = getPetHitRect();
+  if (!rect) return false;
+  const pad = event.pointerType === "touch" ? 12 : 4;
   return event.clientX >= rect.left - pad
     && event.clientX <= rect.right + pad
     && event.clientY >= rect.top - pad
     && event.clientY <= rect.bottom + pad;
+}
+
+function getPetHitRect() {
+  if (!currentWrapper) return null;
+  const rect = currentWrapper.getBoundingClientRect();
+  const vb = getViewBox();
+  const wide = Array.isArray(config.wideHitboxFiles) && config.wideHitboxFiles.includes(currentAssetName);
+  const sleeping = Array.isArray(config.sleepingHitboxFiles) && config.sleepingHitboxFiles.includes(currentAssetName);
+  const boxes = config.hitBoxes || {};
+  const content = config.layout && config.layout.contentBox;
+  const box = (sleeping ? boxes.sleeping : wide ? boxes.wide : boxes.default)
+    || (content && { x: content.x, y: content.y, w: content.width, h: content.height });
+  if (!box || !(box.w > 0) || !(box.h > 0)) return rect;
+  const left = rect.left + (box.x - vb.x) * rect.width / vb.width;
+  const top = rect.top + (box.y - vb.y) * rect.height / vb.height;
+  return { left, top, right: left + box.w * rect.width / vb.width, bottom: top + box.h * rect.height / vb.height };
 }
 
 function setDragOffset(dx, dy, wrapper = currentWrapper) {
@@ -393,8 +634,13 @@ function setDragOffset(dx, dy, wrapper = currentWrapper) {
 }
 
 function startPotentialDrag(event) {
+  if (!petIsInteractive()) return;
   if (event.button !== undefined && event.button !== 0) return;
   if (!isPointOverPet(event)) return;
+  if (suppressClickTimer) clearTimeout(suppressClickTimer);
+  suppressNextClick = false;
+  const stage = petStage.getBoundingClientRect();
+  const hit = getPetHitRect();
   dragState = {
     pointerId: event.pointerId,
     startX: event.clientX,
@@ -402,16 +648,21 @@ function startPotentialDrag(event) {
     dx: 0,
     dy: 0,
     dragging: false,
+    minDx: stage.left - hit.left + 4,
+    maxDx: stage.right - hit.right - 4,
+    minDy: stage.top - hit.top + 4,
+    maxDy: stage.bottom - hit.bottom - 4,
   };
   try { petStage.setPointerCapture(event.pointerId); } catch {}
 }
 
 function updateDrag(event) {
+  if (!petIsInteractive()) { cancelPetDrag(); return; }
   if (!dragState || dragState.pointerId !== event.pointerId) return;
   const dx = event.clientX - dragState.startX;
   const dy = event.clientY - dragState.startY;
-  dragState.dx = dx;
-  dragState.dy = dy;
+  dragState.dx = Math.max(dragState.minDx, Math.min(dragState.maxDx, dx));
+  dragState.dy = Math.max(dragState.minDy, Math.min(dragState.maxDy, dy));
 
   if (!dragState.dragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
     dragState.dragging = true;
@@ -427,7 +678,7 @@ function updateDrag(event) {
 
   if (dragState.dragging) {
     event.preventDefault();
-    setDragOffset(dx, dy);
+    setDragOffset(dragState.dx, dragState.dy);
   }
 }
 
@@ -441,8 +692,25 @@ function finishDrag(event) {
   petStage.classList.remove("is-dragging");
   if (wasDragging) {
     suppressNextClick = true;
-    renderPet(currentSvg, currentState, { force: true });
+    setDragOffset(0, 0);
+    // pointercancel may never produce click; do not swallow the next real one.
+    suppressClickTimer = setTimeout(() => { suppressNextClick = false; }, 250);
+    renderDisplayedPet({ force: true });
   }
+}
+
+function cancelPetDrag() {
+  if (!dragState) return;
+  const pointerId = dragState.pointerId;
+  dragState = null;
+  try {
+    if (petStage.hasPointerCapture(pointerId)) petStage.releasePointerCapture(pointerId);
+  } catch {}
+  petStage.classList.remove("is-dragging");
+  setDragOffset(0, 0);
+  suppressNextClick = false;
+  if (suppressClickTimer) clearTimeout(suppressClickTimer);
+  suppressClickTimer = null;
 }
 
 petStage.addEventListener("pointerdown", startPotentialDrag);
@@ -455,13 +723,18 @@ petStage.addEventListener("pointermove", (event) => {
 petStage.addEventListener("pointerleave", () => applyEyeMove(0, 0));
 petStage.addEventListener("pointerup", finishDrag);
 petStage.addEventListener("pointercancel", finishDrag);
+petStage.addEventListener("lostpointercapture", finishDrag);
 
 petStage.addEventListener("click", (event) => {
+  if (!petIsInteractive()) return;
   if (suppressNextClick) {
     suppressNextClick = false;
     event.preventDefault();
     return;
   }
+  if (!isPointOverPet(event)) return;
+  cancelPreview();
+  updateActivity();
   if (currentState !== "idle") {
     post("focus-terminal");
     return;
@@ -469,18 +742,34 @@ petStage.addEventListener("click", (event) => {
   const reactions = config.reactions || {};
   const rect = petStage.getBoundingClientRect();
   const side = event.clientX < rect.left + rect.width / 2 ? "clickLeft" : "clickRight";
-  const reaction = reactions[side] || reactions.annoyed;
-  if (!reaction || !reaction.file) {
+  const reaction = event.detail >= 4 ? reactions.annoyed : event.detail >= 2 ? reactions.double : reactions[side] || reactions.annoyed;
+  const file = reaction && (reaction.file || (Array.isArray(reaction.files) && reaction.files[(event.detail || 0) % reaction.files.length]));
+  if (!file) {
     post("focus-terminal");
     return;
   }
   if (reactionTimer) clearTimeout(reactionTimer);
-  renderPet(reaction.file, "reaction", { force: true });
+  renderPet(file, "reaction", { force: true });
   reactionTimer = setTimeout(() => {
     reactionTimer = null;
-    renderPet(currentSvg, currentState, { force: true });
+    renderDisplayedPet({ force: true });
   }, reaction.duration || 2500);
 });
+
+petStage.setAttribute("role", "button");
+updatePetInteraction();
+petStage.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (!petIsInteractive()) return;
+  event.preventDefault();
+  post("focus-terminal");
+});
+
+if (motionQuery) {
+  if (typeof motionQuery.addEventListener === "function") motionQuery.addEventListener("change", updateMotionPreference);
+  else if (typeof motionQuery.addListener === "function") motionQuery.addListener(updateMotionPreference);
+}
+document.addEventListener("visibilitychange", () => setAnimationVisibility(hostVisible));
 
 function plainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
@@ -752,7 +1041,7 @@ function renderPermissionBody(permission, kind, input) {
       break;
     case "shell":
     case "powershell":
-      renderShellBody(body, input, kind);
+      renderShellBody(body, input);
       break;
     case "web-fetch":
       renderWebFetchBody(body, input);
@@ -834,12 +1123,16 @@ function renderNotebookBody(body, permission, input) {
   body.append(renderCodeBlock(input.new_source || "", { lineNumbers: true }));
 }
 
-function renderShellBody(body, input, kind) {
+function renderShellBody(body, input) {
   const command = input.command || "";
-  body.append(renderMeta([
-    { label: "Shell", value: kind === "powershell" ? "PowerShell" : "Bash" },
-    { label: "Description", value: input.description },
-  ]));
+  // The heading already identifies the shell and promotes its description.
+  const meta = renderMeta([
+    { label: "Directory", value: compactPath(input.cwd) },
+    { label: "Timeout", value: input.timeout === undefined ? undefined : `${input.timeout} ms` },
+    { label: "Background", value: input.run_in_background ? "Yes" : undefined },
+  ]);
+  if (meta.childElementCount) body.append(meta);
+  if (input.dangerouslyDisableSandbox) appendNotice(body, "This command requests execution outside the sandbox.", "warning");
   if (looksDestructive(command)) appendNotice(body, "This command may modify or delete data. Review it carefully.", "warning");
   if (looksLikeSedEdit(command)) appendNotice(body, "This looks like an in-place file edit command.", "info");
   appendSectionTitle(body, "Command");
@@ -1541,7 +1834,16 @@ function makeSessionRow(session) {
   row.className = "session-row";
   row.dataset.agent = session.agentId || "";
   row.title = session.cwd || session.id;
-  row.addEventListener("click", () => post("focus-terminal"));
+  row.dataset.sessionId = session.id || "";
+  row.tabIndex = 0;
+  row.setAttribute("role", "button");
+  const focus = () => post("focus-terminal", { sessionId: session.id });
+  row.addEventListener("click", focus);
+  row.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    focus();
+  });
 
   const mark = document.createElement("div");
   mark.className = "agent-mark";
@@ -1555,9 +1857,10 @@ function makeSessionRow(session) {
   const meta = document.createElement("div");
   meta.className = "session-meta";
   const hostPart = session.host ? ` @ ${session.host}` : "";
-  meta.textContent = `${agentLabel(session.agentId)} · ${session.state}${hostPart}`;
+  meta.textContent = `${agentLabel(session.agentId)} · ${activityText(session.state)}${hostPart}`;
   body.append(title, meta);
   row.append(mark, body);
+  row.setAttribute("aria-label", `Open ${agentLabel(session.agentId)} terminal: ${title.textContent}. ${activityText(session.state)}.`);
   return row;
 }
 
@@ -1576,7 +1879,7 @@ function renderSessions() {
     if (active.length === 0) details.setAttribute("open", "");
     const summary = document.createElement("summary");
     summary.className = "idle-summary";
-    summary.textContent = `Idle (${idle.length})`;
+    summary.textContent = `Resting (${idle.length})`;
     details.appendChild(summary);
     for (const session of idle) {
       details.appendChild(makeSessionRow(session));
@@ -1595,12 +1898,17 @@ function playSound(uri) {
 }
 
 function applyInit(payload) {
+  cancelPreview();
+  if (reactionTimer) clearTimeout(reactionTimer);
+  reactionTimer = null;
   config = payload.config || {};
   themes = payload.themes || [];
   themeId = payload.themeId || themeId;
   soundMap = config.soundMap || {};
   runtimePaused = !!payload.paused;
   integrationsEnabled = payload.integrationsEnabled !== false;
+  connectionState = payload.connectionState || (runtimePaused ? "paused" : (payload.serverPort ? "connected" : "disconnected"));
+  notificationsQuiet = !!payload.dnd;
   currentState = runtimePaused ? "paused" : (payload.state || "idle");
   currentSvg = payload.svg || (config.idleFollowSvg || "");
   sessions = runtimePaused ? [] : (payload.sessions || []);
@@ -1608,13 +1916,12 @@ function applyInit(payload) {
   for (const id of [...elicitationStates.keys()]) {
     if (!permissions.has(id)) elicitationStates.delete(id);
   }
-  document.body.classList.toggle("is-dnd", !!payload.dnd);
+  document.body.classList.toggle("is-dnd", notificationsQuiet);
   document.body.classList.toggle("is-runtime-paused", runtimePaused);
   document.body.classList.toggle("is-integrations-disabled", !integrationsEnabled);
-  updateThemeButton();
-  updateRuntimeButton();
-  updateInstallButton();
-  setStatus(currentState, payload.serverPort);
+  updateTheme();
+  updateMotionPreference();
+  updateActivity();
   renderPet(currentSvg, currentState, { force: true });
   renderSessions();
   renderPermissions();
@@ -1628,32 +1935,62 @@ function handleMessage(event) {
       applyInit(payload);
       break;
     case "theme-config":
+      cancelPreview();
+      if (reactionTimer) clearTimeout(reactionTimer);
+      reactionTimer = null;
       config = payload.config || {};
       themeId = payload.themeId || themeId;
+      themes = payload.themes || themes;
       soundMap = config.soundMap || {};
-      updateThemeButton();
-      renderPet(currentSvg || config.idleFollowSvg, currentState, { force: true });
+      currentSvg = payload.svg || (fileUri(currentSvg) ? currentSvg : config.idleFollowSvg);
+      updateTheme();
+      updateMotionPreference();
+      renderDisplayedPet({ force: true });
+      updateActivity();
+      break;
+    case "runtime-status":
+      connectionState = payload.connectionState || connectionState;
+      if (typeof payload.paused === "boolean") runtimePaused = payload.paused;
+      if (typeof payload.integrationsEnabled === "boolean") integrationsEnabled = payload.integrationsEnabled;
+      document.body.classList.toggle("is-runtime-paused", runtimePaused);
+      document.body.classList.toggle("is-integrations-disabled", !integrationsEnabled);
+      updateActivity();
+      break;
+    case "preview-animation":
+      previewAnimation(payload);
+      break;
+    case "visibility-change":
+      setAnimationVisibility(payload.visible);
       break;
     case "state-change":
       if (runtimePaused) break;
       currentState = payload.state || "idle";
       currentSvg = payload.svg || currentSvg;
       sessions = payload.sessions || sessions;
-      setStatus(currentState);
-      if (!(dragState && dragState.dragging)) renderPet(currentSvg, currentState);
+      connectionState = payload.connectionState || "connected";
+      updateActivity();
+      if (!preview && !(dragState && dragState.dragging)) {
+        if (reactionTimer) clearTimeout(reactionTimer);
+        reactionTimer = null;
+        renderDisplayedPet();
+      }
       renderSessions();
       break;
     case "permission-show":
       permissions.set(payload.id, payload);
       renderPermissions();
+      updateActivity();
       break;
     case "permission-hide":
       permissions.delete(payload.id);
       elicitationStates.delete(payload.id);
       renderPermissions();
+      updateActivity();
       break;
     case "dnd-change":
-      document.body.classList.toggle("is-dnd", !!payload.enabled);
+      notificationsQuiet = !!payload.enabled;
+      document.body.classList.toggle("is-dnd", notificationsQuiet);
+      updateActivity();
       break;
     case "play-sound":
       playSound(payload.uri || soundMap.confirm);
@@ -1665,18 +2002,6 @@ function handleMessage(event) {
       break;
   }
 }
-
-installBtn.addEventListener("click", () => {
-  post(integrationsEnabled ? "install-integrations" : "enable-integrations");
-});
-disableIntegrationsBtn.addEventListener("click", () => post("disable-integrations"));
-dndBtn.addEventListener("click", () => post("toggle-dnd"));
-restartBtn.addEventListener("click", () => post("restart-runtime"));
-runtimeBtn.addEventListener("click", () => post(runtimePaused ? "resume-runtime" : "pause-runtime"));
-themeBtn.addEventListener("click", () => {
-  const next = getNextTheme();
-  if (next) post("set-theme", { themeId: next.id });
-});
 
 window.addEventListener("message", handleMessage);
 post("ready");

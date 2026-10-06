@@ -6,6 +6,7 @@
 const fs = require("fs");
 const { postStateToRunningServer, readHostPrefix } = require("./server-config");
 const { createPidResolver, readStdinJson, getPlatformConfig } = require("./shared-process");
+const { requestPermission } = require("./permission-client");
 
 const TRANSCRIPT_TAIL_BYTES = 262144; // 256 KB
 const SESSION_TITLE_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]+/g;
@@ -72,31 +73,14 @@ function extractSessionTitleFromTranscript(transcriptPath) {
   return latest;
 }
 
-const EVENT_TO_STATE = {
-  SessionStart: "idle",
-  SessionEnd: "sleeping",
-  UserPromptSubmit: "thinking",
-  PreToolUse: "working",
-  PostToolUse: "working",
-  PostToolUseFailure: "error",
-  Stop: "attention",
-  StopFailure: "error",
-  SubagentStart: "juggling",
-  SubagentStop: "working",
-  PreCompact: "sweeping",
-  PostCompact: "attention",
-  Notification: "notification",
-  // PermissionRequest is handled by HTTP hook (blocking) — not command hook
-  Elicitation: "notification",
-  WorktreeCreate: "carrying",
-};
+const EVENT_TO_STATE = require("../agents/claude-code").eventMap;
 
 function buildStateBody(event, payload, resolve) {
   const state = EVENT_TO_STATE[event];
   if (!state) return null;
 
   const sessionId = payload.session_id || "default";
-  const cwd = payload.cwd || "";
+  const cwd = (event === "CwdChanged" && payload.new_cwd) || payload.cwd || "";
   const source = payload.source || payload.reason || "";
 
   // /clear triggers SessionEnd → SessionStart in quick succession;
@@ -105,6 +89,18 @@ function buildStateBody(event, payload, resolve) {
 
   const body = { state: resolvedState, session_id: sessionId, event };
   body.agent_id = "claude-code";
+  body.source = "hook";
+  if (payload.agent_id) body.child_agent_id = payload.agent_id;
+  if (payload.agent_type) body.agent_type = payload.agent_type;
+  if (payload.turn_id) body.turn_id = payload.turn_id;
+  if (payload.tool_use_id) body.tool_call_id = payload.tool_use_id;
+  if (payload.tool_name) body.tool_name = payload.tool_name;
+  if (payload.task_id) body.task_id = payload.task_id;
+  if (payload.teammate_name) body.teammate_name = payload.teammate_name;
+  if (payload.team_name) body.team_name = payload.team_name;
+  if (payload.model || payload.to_model) body.model = payload.to_model || payload.model;
+  if (payload.notification_type) body.notification_type = payload.notification_type;
+  if (event === "CwdChanged" || event === "PostModelSwitch") body.meta_only = true;
   if (cwd) body.cwd = cwd;
   // Session title: prefer payload field, fall back to scanning the transcript
   // tail for user-set custom-title / agent-name events
@@ -141,6 +137,7 @@ function buildStateBody(event, payload, resolve) {
 }
 
 function main() {
+  if (process.argv.includes("--remote")) process.env.CLAWD_REMOTE = "1";
   const event = process.argv[2];
   if (!EVENT_TO_STATE[event]) process.exit(0);
 
@@ -155,15 +152,20 @@ function main() {
   // Remote mode: skip PID collection — remote PIDs are meaningless on the local machine
   if (event === "SessionStart" && !process.env.CLAWD_REMOTE) resolve();
 
-  readStdinJson().then((payload) => {
+  readStdinJson().then(async (payload) => {
     const body = buildStateBody(event, payload || {}, resolve);
     if (!body) process.exit(0);
+    if (event === "PermissionRequest") {
+      const response = await requestPermission({ ...payload, ...body, hook_event_name: event });
+      if (response) process.stdout.write(JSON.stringify(response));
+      return process.exit(0);
+    }
     postStateToRunningServer(
       JSON.stringify(body),
-      { timeoutMs: 100 },
+      { timeoutMs: 100, cwd: body.cwd },
       () => process.exit(0)
     );
-  });
+  }).catch(() => process.exit(0));
 }
 
 if (require.main === module) main();

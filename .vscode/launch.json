@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Clawd: isolated extension host",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--user-data-dir=${workspaceFolder}/.debug/user-data",
+        "--extensions-dir=${workspaceFolder}/.debug/extensions",
+        "--new-window"
+      ],
+      "env": {
+        "CLAWD_RUNTIME_DIR": "${workspaceFolder}/.debug/runtime",
+        "CLAUDE_CONFIG_DIR": "${workspaceFolder}/.debug/claude",
+        "CODEX_HOME": "${workspaceFolder}/.debug/codex"
+      }
+    }
+  ]
+}

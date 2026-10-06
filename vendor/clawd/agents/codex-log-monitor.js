@@ -5,8 +5,9 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { StringDecoder } = require("string_decoder");
 
-const APPROVAL_HEURISTIC_MS = 2000;
+const MAX_READ_BYTES = 1024 * 1024;
 const MAX_TRACKED_FILES = 50;
 const MAX_PARTIAL_BYTES = 65536;
 const RECENT_DAY_DIR_CACHE_MS = 60 * 60 * 1000; // 1 hour
@@ -30,7 +31,10 @@ class CodexLogMonitor {
   }
 
   _resolveBaseDir() {
-    const dir = this._config.logConfig.sessionDir;
+    const dir = this._config.logConfig.sessionDir || "~/.codex/sessions";
+    if ((!dir || dir === "~/.codex/sessions") && process.env.CODEX_HOME) {
+      return path.join(process.env.CODEX_HOME, "sessions");
+    }
     if (dir.startsWith("~")) {
       return path.join(os.homedir(), dir.slice(1));
     }
@@ -52,9 +56,6 @@ class CodexLogMonitor {
     if (this._interval) {
       clearInterval(this._interval);
       this._interval = null;
-    }
-    for (const tracked of this._tracked.values()) {
-      if (tracked.approvalTimer) clearTimeout(tracked.approvalTimer);
     }
     this._tracked.clear();
   }
@@ -195,10 +196,24 @@ class CodexLogMonitor {
         lastEventTime: Date.now(),
         lastState: null,
         partial: "",
+        decoder: new StringDecoder("utf8"),
+        discardingLine: false,
+        inode: stat.ino,
         hadToolUse: false,
         agentPid: null,
       };
       this._tracked.set(filePath, tracked);
+    }
+
+    // Rotation/truncation must not leave the reader parked beyond the new EOF.
+    if (stat.size < tracked.offset || stat.ino !== tracked.inode) {
+      tracked.offset = 0;
+      tracked.partial = "";
+      tracked.discardingLine = false;
+      tracked.decoder = new StringDecoder("utf8");
+      tracked.inode = stat.ino;
+      tracked.hadToolUse = false;
+      tracked.lastState = null;
     }
 
     // No new data
@@ -206,26 +221,37 @@ class CodexLogMonitor {
 
     // Read incremental bytes
     let buf;
+    let fd;
     try {
-      const fd = fs.openSync(filePath, "r");
-      const readLen = stat.size - tracked.offset;
+      fd = fs.openSync(filePath, "r");
+      const readLen = Math.min(stat.size - tracked.offset, MAX_READ_BYTES);
       buf = Buffer.alloc(readLen);
-      fs.readSync(fd, buf, 0, readLen, tracked.offset);
-      fs.closeSync(fd);
+      const bytesRead = fs.readSync(fd, buf, 0, readLen, tracked.offset);
+      tracked.offset += bytesRead;
+      buf = buf.subarray(0, bytesRead);
     } catch {
       return;
+    } finally {
+      if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
     }
-    tracked.offset = stat.size;
+    tracked.lastEventTime = Date.now();
 
     // Split into lines, handle partial last line
-    const text = tracked.partial + buf.toString("utf8");
+    let text = tracked.decoder.write(buf);
+    if (tracked.discardingLine) {
+      const newline = text.indexOf("\n");
+      if (newline === -1) return;
+      text = text.slice(newline + 1);
+      tracked.discardingLine = false;
+    }
+    text = tracked.partial + text;
     const lines = text.split("\n");
     // Last element might be incomplete — save for next poll.
-    // Cap at 64KB: lines larger than this (e.g. huge tool output) are discarded —
-    // both halves will fail JSON.parse so one state update is silently lost, which
-    // is harmless for the pet's display state.
+    // Cap incomplete records at 64KB and discard their remainder through the
+    // next newline. Large tool output must not grow the buffer without a bound.
     const remainder = lines.pop() || "";
-    tracked.partial = remainder.length > MAX_PARTIAL_BYTES ? "" : remainder;
+    tracked.discardingLine = Buffer.byteLength(remainder) > MAX_PARTIAL_BYTES;
+    tracked.partial = tracked.discardingLine ? "" : remainder;
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -240,13 +266,7 @@ class CodexLogMonitor {
     } catch {
       return; // corrupted line, skip
     }
-
-    // Skip historical events that predate monitor start — prevents replay
-    // storms on app restart from driving stale state transitions
-    if (obj && typeof obj.timestamp === "string") {
-      const ts = Date.parse(obj.timestamp);
-      if (Number.isFinite(ts) && ts < this._startedAtMs - 1500) return;
-    }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
 
     const type = obj.type;
     const payload = obj.payload;
@@ -260,6 +280,7 @@ class CodexLogMonitor {
     if (type === "session_meta" && payload) {
       tracked.cwd = payload.cwd || "";
     }
+    if (type === "turn_context" && payload && payload.cwd) tracked.cwd = payload.cwd;
 
     // Extract Codex-authored session summary (turn_context.summary).
     // Updates tracked.sessionTitle in place; gets picked up by the next
@@ -270,13 +291,10 @@ class CodexLogMonitor {
       tracked.sessionTitle = extractedTitle;
     }
 
-    // Approval heuristic: exec_command_end or function_call_output means command finished —
-    // clear pending approval timer (these events are not in logEventMap)
-    if (key === "event_msg:exec_command_end" || key === "response_item:function_call_output") {
-      if (tracked.approvalTimer) {
-        clearTimeout(tracked.approvalTimer);
-        tracked.approvalTimer = null;
-      }
+    // Restore metadata before suppressing old state transitions on restart.
+    if (obj && typeof obj.timestamp === "string") {
+      const ts = Date.parse(obj.timestamp);
+      if (Number.isFinite(ts) && ts < this._startedAtMs - 1500) return;
     }
 
     // Look up state mapping
@@ -289,16 +307,12 @@ class CodexLogMonitor {
     if (key === "event_msg:task_started") {
       tracked.hadToolUse = false;
     }
-    if (key === "response_item:function_call") {
+    if (["response_item:function_call", "response_item:custom_tool_call", "response_item:web_search_call"].includes(key)) {
       tracked.hadToolUse = true;
     }
 
     // Turn-end: happy if tools were used this turn, idle otherwise
     if (state === "codex-turn-end") {
-      if (tracked.approvalTimer) {
-        clearTimeout(tracked.approvalTimer);
-        tracked.approvalTimer = null;
-      }
       const resolved = tracked.hadToolUse ? "attention" : "idle";
       tracked.hadToolUse = false;
       tracked.lastState = resolved;
@@ -309,43 +323,13 @@ class CodexLogMonitor {
         sourcePid: agentPid,
         agentPid,
         sessionTitle: tracked.sessionTitle,
+        source: "log",
       });
       return;
     }
 
-    // Approval heuristic: function_call starts a 2s timer — if no exec_command_end arrives,
-    // assume Codex is waiting for user approval and emit codex-permission.
-    // Explicit escalated requests (sandbox_permissions/justification) skip the timer.
-    if (key === "response_item:function_call") {
-      if (tracked.approvalTimer) clearTimeout(tracked.approvalTimer);
-      const cmd = this._extractShellCommand(payload);
-      if (cmd) {
-        if (this._isExplicitApprovalRequest(payload)) {
-          const agentPid = this._resolveTrackedAgentPid(tracked);
-          tracked.lastEventTime = Date.now();
-          this._onStateChange(tracked.sessionId, "codex-permission", key, {
-            cwd: tracked.cwd,
-            sourcePid: agentPid,
-            agentPid,
-            sessionTitle: tracked.sessionTitle,
-            permissionDetail: { command: cmd, rawPayload: payload },
-          });
-          return;
-        }
-        tracked.approvalTimer = setTimeout(() => {
-          tracked.approvalTimer = null;
-          const agentPid = this._resolveTrackedAgentPid(tracked);
-          tracked.lastEventTime = Date.now();
-          this._onStateChange(tracked.sessionId, "codex-permission", key, {
-            cwd: tracked.cwd,
-            sourcePid: agentPid,
-            agentPid,
-            sessionTitle: tracked.sessionTitle,
-            permissionDetail: { command: cmd, rawPayload: payload },
-          });
-        }, APPROVAL_HEURISTIC_MS);
-      }
-    }
+    // Transcripts cannot tell us whether a command actually needs user approval.
+    // Only the official PermissionRequest hook opens an approval card.
 
     // Avoid spamming same state
     if (state === tracked.lastState && state === "working") return;
@@ -358,6 +342,7 @@ class CodexLogMonitor {
       sourcePid: agentPid,
       agentPid,
       sessionTitle: tracked.sessionTitle,
+      source: "log",
     });
   }
 
@@ -373,34 +358,6 @@ class CodexLogMonitor {
       if (summary && summary !== "none" && summary !== "auto") return summary;
     }
     return null;
-  }
-
-  // Extract shell command from function_call payload
-  // shell_command: {"command":"...","workdir":"..."}
-  // exec_command:  {"cmd":"...","workdir":"..."}
-  _extractShellCommand(payload) {
-    if (!payload || typeof payload !== "object") return "";
-    if (payload.name !== "shell_command" && payload.name !== "exec_command") return "";
-    try {
-      const args = typeof payload.arguments === "string"
-        ? JSON.parse(payload.arguments) : payload.arguments;
-      if (args && args.command) return String(args.command);
-      if (args && args.cmd) return String(args.cmd);
-    } catch {}
-    return "";
-  }
-
-  _isExplicitApprovalRequest(payload) {
-    if (!payload || typeof payload !== "object") return false;
-    if (payload.name !== "shell_command" && payload.name !== "exec_command") return false;
-    try {
-      const args = typeof payload.arguments === "string"
-        ? JSON.parse(payload.arguments) : payload.arguments;
-      if (!args || typeof args !== "object") return false;
-      if (args.sandbox_permissions === "require_escalated") return true;
-      if (typeof args.justification === "string" && args.justification.trim()) return true;
-    } catch {}
-    return false;
   }
 
   // Extract UUID from rollout filename
@@ -471,12 +428,12 @@ class CodexLogMonitor {
       const age = now - tracked.lastEventTime;
       if (age > 300000) {
         // 5 min stale — notify session end and stop tracking
-        if (tracked.approvalTimer) clearTimeout(tracked.approvalTimer);
         this._onStateChange(tracked.sessionId, "sleeping", "stale-cleanup", {
           cwd: tracked.cwd,
           sourcePid: tracked.agentPid,
           agentPid: tracked.agentPid,
           sessionTitle: tracked.sessionTitle,
+          source: "log",
         });
         this._tracked.delete(filePath);
       }
