@@ -108,7 +108,7 @@ test("all 17 reference expressions are accessible from preview states and varian
 
 test("generated SVGs share a stable canvas and retain outlines without inline styles", () => {
   for (const asset of assets) {
-    const file = fs.readFileSync(path.join(root, "assets", asset.file), "utf8");
+    const file = fs.readFileSync(path.join(root, "assets", asset.file), "utf8").replace(/\r\n/g, "\n");
     assert.equal(file, asset.svg, `${asset.file} matches editable generator source`);
     const nodes = descendants(parseDocument(file, { xmlMode: true }));
     const svg = nodes.find((node) => node.name === "svg");

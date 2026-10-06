@@ -123,7 +123,8 @@ test("installer refuses invalid configuration without overwriting it", (t) => {
   fs.writeFileSync(file, "{invalid");
   assert.throws(() => registerCodexHooks({ hooksPath: file, nodeBin: "node" }), /Cannot read Codex hooks/);
   assert.equal(fs.readFileSync(file, "utf8"), "{invalid");
-  assert.equal(quoteShell("/tmp/don't/$expand/node"), "'/tmp/don'\"'\"'t/$expand/node'");
+  assert.equal(quoteShell("/tmp/don't/$expand/node", "linux"), "'/tmp/don'\"'\"'t/$expand/node'");
+  assert.equal(quoteShell("C:\\Program Files\\node.exe", "win32"), '"C:\\Program Files\\node.exe"');
 });
 
 test("Claude migrates fixed-port permissions, preserves user hooks, and gates new events", (t) => {
