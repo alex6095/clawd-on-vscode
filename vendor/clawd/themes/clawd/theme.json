@@ -125,12 +125,12 @@
       "duration": 6500
     },
     {
-      "file": "clawd-working-debugger.svg",
-      "duration": 14000
+      "file": "clawd-react-left.svg",
+      "duration": 2500
     },
     {
-      "file": "clawd-idle-reading.svg",
-      "duration": 14000
+      "file": "clawd-react-right.svg",
+      "duration": 2500
     }
   ],
   "displayHintMap": {

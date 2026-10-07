@@ -89,7 +89,7 @@ test("Neobjuk is discovered as the third built-in theme and loads every runtime 
     assert.ok(theme.states[state].length, `${state} has an animation`);
   }
   const files = collectThemeFiles(theme);
-  assert.equal(files.size, 21);
+  assert.equal(files.size, 24);
   for (const file of files) assert.ok(fs.existsSync(loader.getAssetPath(file)), file);
 });
 
@@ -170,12 +170,82 @@ test("all arm roots remain inside a connected torso throughout their animated ar
       assert.ok(css.includes(`animation:${motionName}-move `));
       const frames = new RegExp(`@keyframes ${motionName}-move\\{(.+?)\\}\\}`).exec(asset.svg)[1];
       assert.ok(!frames.includes("translate") && !frames.includes("scale"), "limb motion cannot move its root off the body");
-      for (const degrees of [0, motion.degrees]) {
+      const angles = [...frames.matchAll(/rotate\(([-\d.]+)deg\)/g)].map((match) => Number(match[1]));
+      assert.deepEqual(angles, (motion.frames || [[0, 0], [50, motion.degrees], [100, 0]]).map(([, angle]) => angle), "generated CSS contains the complete intended arm arc");
+      for (const degrees of angles) {
         const transformed = rotate(rootPoint, degrees, origin);
         assert.ok(Math.hypot(transformed[0] - rootPoint[0], transformed[1] - rootPoint[1]) < .001);
       }
     }
   }
+});
+
+test("working phrases alternate visible keyboard contact and contain a genuine rest", () => {
+  for (const id of ["typing", "multitasking"]) {
+    const nodes = nodesFor(id);
+    const keyboard = nodes.find((node) => node.attribs?.["data-part"] === "keyboard");
+    const deck = bounds(contour(keyboard.children.find((node) => node.name === "path").attribs.d));
+    const hands = nodes.filter((node) => node.attribs?.["data-contact-point"]);
+    assert.equal(hands.length, 2);
+    for (const hand of hands) {
+      const contact = hand.attribs["data-contact-point"].split(" ").map(Number);
+      const shape = contour(hand.children.find((node) => node.name === "path" && node.attribs.fill !== "none").attribs.d);
+      assert.ok(shape.some(([x, y]) => Math.hypot(x - contact[0], y - contact[1]) < .1), "contact is on the actual paddle contour");
+      assert.equal(contact[1], Number(keyboard.attribs["data-contact-y"]));
+      assert.ok(contact[0] > deck.left && contact[0] < deck.right);
+      const motion = ARM_MOTIONS[hand.attribs["data-arm-motion"]];
+      const lifted = rotate(contact, motion.degrees, motion.pivot);
+      assert.ok(contact[1] - lifted[1] >= 5, `${id} hand clears the key plane by at least five canvas pixels`);
+    }
+    const motions = hands.map((hand) => ARM_MOTIONS[hand.attribs["data-arm-motion"]]);
+    const left = new Map(motions[0].frames), right = new Map(motions[1].frames);
+    const active = [...left.keys()].filter((time) => time > 0 && time < 76);
+    for (const time of active) assert.notEqual(left.get(time) === 0, right.get(time) === 0, "one hand presses while the opposite hand lifts");
+    assert.ok(active.length >= 10, "each phrase has repeated alternating taps");
+    for (const time of [76, 100]) assert.equal(left.get(time) + Math.abs(right.get(time)), 0, "both hands settle during the rest");
+    assert.ok(motions[0].duration * .24 >= .6, "typing rests for at least six tenths of a second");
+    const head = nodes.find((node) => node.attribs?.["data-part"] === "head");
+    assert.match(head.children[0].attribs.class, /nb-(work|multi)-head/);
+  }
+  assert.ok(ARM_MOTIONS["nb-multi-left"].duration < ARM_MOTIONS["nb-type-left"].duration, "parallel work has a quicker cadence");
+  const theme = makeTheme();
+  assert.deepEqual(theme.states.juggling, ["neobjuk-multitasking.svg"]);
+  assert.equal(theme.jugglingTiers[0].file, "neobjuk-multitasking.svg");
+  assert.equal(nodesFor("multitasking").filter((node) => node.attribs?.["data-part"] === "parallel-task").length, 3);
+});
+
+test("context tidying alternates broad collecting arcs instead of synchronized flapping", () => {
+  const left = ARM_MOTIONS["nb-tidy-left"], right = ARM_MOTIONS["nb-tidy-right"];
+  assert.equal(left.duration, right.duration);
+  const leftSweep = left.frames.filter(([, angle]) => angle !== 0).map(([time]) => time);
+  const rightSweep = right.frames.filter(([, angle]) => angle !== 0).map(([time]) => time);
+  assert.ok(Math.max(...leftSweep) < Math.min(...rightSweep), "left collection finishes before right collection starts");
+  assert.ok(Math.abs(left.degrees) >= 20 && Math.abs(right.degrees) >= 20, "hands sweep a visible arc");
+  const nodes = nodesFor("tidying");
+  assert.ok(nodes.some((node) => node.attribs?.["data-part"] === "context-papers"));
+  assert.ok(nodes.some((node) => node.attribs?.class === "nb-paper-left"));
+  assert.ok(nodes.some((node) => node.attribs?.class === "nb-paper-right"));
+});
+
+test("idle animation pools contain leisure and exclude runtime work, alerts and sleep", () => {
+  const theme = makeTheme();
+  const eventFiles = new Set(Object.entries(theme.states).filter(([state]) => state !== "idle" && !state.startsWith("pose-")).flatMap(([, files]) => files));
+  for (const file of Object.values(theme.displayHintMap)) eventFiles.add(file);
+  theme.sleepingHitboxFiles.forEach((file) => eventFiles.add(file));
+  for (const pool of [theme.idleAnimations, ...Object.values(theme.variants).map((variant) => variant.idleAnimations)]) {
+    assert.ok(pool.length >= 3, "chosen reference variants also expose leisure rotation");
+    for (const animation of pool) {
+      assert.deepEqual(Object.keys(animation).sort(), ["duration", "file"]);
+      assert.ok(animation.duration >= 6000);
+      assert.ok(!eventFiles.has(animation.file), `${animation.file} does not imitate an event while idle`);
+      const asset = assets.find((entry) => entry.file === animation.file);
+      const nodes = nodesFor(asset.id);
+      assert.ok(!nodes.some((node) => ["keyboard", "parallel-task", "context-papers"].includes(node.attribs?.["data-part"])), "idle carries no work props");
+      assert.ok(!nodes.some((node) => /^nb-(type|multi|tidy)-/.test(node.attribs?.["data-arm-motion"] || "")), "idle hands have no work motions");
+    }
+  }
+  assert.ok(theme.idleAnimations.some((animation) => animation.file === "neobjuk-look-around.svg"));
+  assert.ok(theme.idleAnimations.some((animation) => animation.file === "neobjuk-stretch.svg"));
 });
 
 test("lying poses attach their compact arms and neck at transformed canonical joints", () => {

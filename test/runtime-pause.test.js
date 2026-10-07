@@ -344,3 +344,19 @@ test("untrusted workspaces do not start a hook server", async () => {
     assert.equal(harness.counters.monitorStarts, 0);
   } finally { harness.restore(); }
 });
+
+test("renderer snapshots serialize only available theme leisure animations", async () => {
+  for (const theme of ["clawd", "calico", "neobjuk"]) {
+    const harness = loadRuntimeWithFakes({ theme, "runtime.enabled": false });
+    try {
+      await harness.runtime.start();
+      const config = harness.posts.find((post) => post.type === "init").payload.config;
+      assert.ok(config.idleAnimations.length, `${theme} exposes leisure reactions`);
+      for (const animation of config.idleAnimations) {
+        assert.ok(config.assetMap[animation.file], `${theme}:${animation.file} has an asset URI`);
+        assert.ok(animation.duration >= 1000 && animation.duration <= 8000);
+        assert.ok(!/working|thinking|reading|debugger|notification|error|sleep/.test(animation.file));
+      }
+    } finally { harness.runtime.dispose(); harness.restore(); }
+  }
+});

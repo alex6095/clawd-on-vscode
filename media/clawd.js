@@ -42,12 +42,18 @@ let hostVisible = true;
 let reducedMotion = false;
 let preview = null;
 let previewTimer = null;
+let idleAnimation = null;
+let idleWaitTimer = null;
+let idleEndTimer = null;
+let lastIdleFile = null;
 const svgCache = new Map();
 const motionQuery = typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : null;
 
 const DRAG_THRESHOLD = 4;
+const IDLE_WAIT_MIN = 14000;
+const IDLE_WAIT_MAX = 28000;
 
 function post(type, body = {}) {
   vscode.postMessage({ type, ...body });
@@ -178,6 +184,7 @@ function updateMotionPreference() {
   } else if (wasReduced && currentWrapper && currentWrapper.querySelector("canvas")) {
     renderDisplayedPet({ force: true });
   }
+  syncIdleAnimation();
 }
 
 function setAnimationVisibility(visible) {
@@ -198,6 +205,7 @@ function setAnimationVisibility(visible) {
     if (svg && !reducedMotion && typeof svg.unpauseAnimations === "function") svg.unpauseAnimations();
     renderDisplayedPet({ force: !!(currentWrapper && currentWrapper.querySelector("canvas")) });
   }
+  syncIdleAnimation();
 }
 
 function freezeRaster(wrapper) {
@@ -217,7 +225,85 @@ function freezeRaster(wrapper) {
 
 function renderDisplayedPet(options = {}) {
   if (preview) return renderPet(preview.svg, preview.state, options);
+  if (idleAnimation) return renderPet(idleAnimation.file, "idle-reaction", options);
   return renderPet(currentSvg || config.idleFollowSvg, currentState, options);
+}
+
+function idleAnimationChoices() {
+  const seen = new Set();
+  return (Array.isArray(config.idleAnimations) ? config.idleAnimations : []).filter((entry) => {
+    if (!entry || typeof entry.file !== "string" || !fileUri(entry.file)) return false;
+    const file = baseName(entry.file);
+    if (file === baseName(config.idleFollowSvg) || seen.has(file)) return false;
+    seen.add(file);
+    return true;
+  });
+}
+
+function canPlayIdleAnimation() {
+  return currentState === "idle" && petIsInteractive() && !reducedMotion
+    && !preview && !reactionTimer && !dragState && !permissions.size
+    && !sessions.some((session) => ACTIVE_SESSION_STATES.has(session.state));
+}
+
+function cancelIdleAnimation(restore = false) {
+  if (idleWaitTimer) clearTimeout(idleWaitTimer);
+  if (idleEndTimer) clearTimeout(idleEndTimer);
+  idleWaitTimer = null;
+  idleEndTimer = null;
+  const interrupted = idleAnimation;
+  idleAnimation = null;
+  if (!interrupted) return false;
+  // Cancel pending SVG loads even when the neutral asset is already on screen.
+  ++renderSerial;
+  pendingAssetKey = null;
+  if (currentWrapper && currentAssetName === baseName(interrupted.file)) {
+    for (const node of [currentWrapper, ...currentWrapper.querySelectorAll("*")]) {
+      node.style.setProperty("animation-play-state", "paused", "important");
+    }
+    const svg = currentWrapper.querySelector("svg");
+    if (svg && typeof svg.pauseAnimations === "function") svg.pauseAnimations();
+    freezeRaster(currentWrapper);
+  }
+  if (restore) renderDisplayedPet({ force: true });
+  return true;
+}
+
+function syncIdleAnimation() {
+  if (!canPlayIdleAnimation()) {
+    cancelIdleAnimation(true);
+    return;
+  }
+  if (idleAnimation || idleWaitTimer) return;
+  // Measure the quiet gap from a visible neutral pet, including after an
+  // initial asset load or a manual reaction that took time to return.
+  if (!currentWrapper || currentAssetName !== baseName(currentSvg || config.idleFollowSvg)) return;
+  if (!idleAnimationChoices().length) return;
+  const delay = IDLE_WAIT_MIN + Math.floor(Math.random() * (IDLE_WAIT_MAX - IDLE_WAIT_MIN + 1));
+  idleWaitTimer = setTimeout(async () => {
+    idleWaitTimer = null;
+    if (!canPlayIdleAnimation()) return;
+    const choices = idleAnimationChoices();
+    const next = choices.length > 1 ? choices.filter((entry) => baseName(entry.file) !== lastIdleFile) : choices;
+    if (!next.length) return;
+    const pose = next[Math.floor(Math.random() * next.length)];
+    idleAnimation = pose;
+    lastIdleFile = baseName(pose.file);
+    await renderDisplayedPet({ force: true });
+    if (idleAnimation !== pose) return;
+    if (!canPlayIdleAnimation() || currentAssetName !== baseName(pose.file)) {
+      cancelIdleAnimation(true);
+      syncIdleAnimation();
+      return;
+    }
+    const duration = Number.isFinite(pose.duration) ? Math.min(8000, Math.max(1000, pose.duration)) : 4500;
+    idleEndTimer = setTimeout(() => {
+      idleEndTimer = null;
+      idleAnimation = null;
+      renderDisplayedPet({ force: true });
+      syncIdleAnimation();
+    }, duration);
+  }, delay);
 }
 
 function cancelPreview() {
@@ -228,6 +314,7 @@ function cancelPreview() {
 
 function previewAnimation(payload) {
   if (!payload.svg || !fileUri(payload.svg)) return;
+  cancelIdleAnimation();
   cancelPreview();
   if (reactionTimer) clearTimeout(reactionTimer);
   reactionTimer = null;
@@ -239,6 +326,7 @@ function previewAnimation(payload) {
     cancelPreview();
     updateActivity();
     renderDisplayedPet({ force: true });
+    syncIdleAnimation();
   }, duration);
 }
 
@@ -433,6 +521,7 @@ async function renderPet(file, state, options = {}) {
       setTimeout(() => previous.remove(), fadeDuration);
     }
   }
+  syncIdleAnimation();
 }
 
 function namespaceSvg(svg, serial) {
@@ -637,6 +726,7 @@ function startPotentialDrag(event) {
   if (!petIsInteractive()) return;
   if (event.button !== undefined && event.button !== 0) return;
   if (!isPointOverPet(event)) return;
+  cancelIdleAnimation(true);
   if (suppressClickTimer) clearTimeout(suppressClickTimer);
   suppressNextClick = false;
   const stage = petStage.getBoundingClientRect();
@@ -697,6 +787,7 @@ function finishDrag(event) {
     suppressClickTimer = setTimeout(() => { suppressNextClick = false; }, 250);
     renderDisplayedPet({ force: true });
   }
+  syncIdleAnimation();
 }
 
 function cancelPetDrag() {
@@ -733,6 +824,7 @@ petStage.addEventListener("click", (event) => {
     return;
   }
   if (!isPointOverPet(event)) return;
+  cancelIdleAnimation(true);
   cancelPreview();
   updateActivity();
   if (currentState !== "idle") {
@@ -746,6 +838,7 @@ petStage.addEventListener("click", (event) => {
   const file = reaction && (reaction.file || (Array.isArray(reaction.files) && reaction.files[(event.detail || 0) % reaction.files.length]));
   if (!file) {
     post("focus-terminal");
+    syncIdleAnimation();
     return;
   }
   if (reactionTimer) clearTimeout(reactionTimer);
@@ -753,6 +846,7 @@ petStage.addEventListener("click", (event) => {
   reactionTimer = setTimeout(() => {
     reactionTimer = null;
     renderDisplayedPet({ force: true });
+    syncIdleAnimation();
   }, reaction.duration || 2500);
 });
 
@@ -762,6 +856,8 @@ petStage.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (!petIsInteractive()) return;
   event.preventDefault();
+  cancelIdleAnimation(true);
+  syncIdleAnimation();
   post("focus-terminal");
 });
 
@@ -1898,6 +1994,7 @@ function playSound(uri) {
 }
 
 function applyInit(payload) {
+  cancelIdleAnimation();
   cancelPreview();
   if (reactionTimer) clearTimeout(reactionTimer);
   reactionTimer = null;
@@ -1935,6 +2032,7 @@ function handleMessage(event) {
       applyInit(payload);
       break;
     case "theme-config":
+      cancelIdleAnimation();
       cancelPreview();
       if (reactionTimer) clearTimeout(reactionTimer);
       reactionTimer = null;
@@ -1947,6 +2045,7 @@ function handleMessage(event) {
       updateMotionPreference();
       renderDisplayedPet({ force: true });
       updateActivity();
+      syncIdleAnimation();
       break;
     case "runtime-status":
       connectionState = payload.connectionState || connectionState;
@@ -1955,6 +2054,7 @@ function handleMessage(event) {
       document.body.classList.toggle("is-runtime-paused", runtimePaused);
       document.body.classList.toggle("is-integrations-disabled", !integrationsEnabled);
       updateActivity();
+      syncIdleAnimation();
       break;
     case "preview-animation":
       previewAnimation(payload);
@@ -1964,6 +2064,7 @@ function handleMessage(event) {
       break;
     case "state-change":
       if (runtimePaused) break;
+      cancelIdleAnimation();
       currentState = payload.state || "idle";
       currentSvg = payload.svg || currentSvg;
       sessions = payload.sessions || sessions;
@@ -1975,17 +2076,20 @@ function handleMessage(event) {
         renderDisplayedPet();
       }
       renderSessions();
+      syncIdleAnimation();
       break;
     case "permission-show":
       permissions.set(payload.id, payload);
       renderPermissions();
       updateActivity();
+      syncIdleAnimation();
       break;
     case "permission-hide":
       permissions.delete(payload.id);
       elicitationStates.delete(payload.id);
       renderPermissions();
       updateActivity();
+      syncIdleAnimation();
       break;
     case "dnd-change":
       notificationsQuiet = !!payload.enabled;

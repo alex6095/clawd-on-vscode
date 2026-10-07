@@ -7,6 +7,7 @@ const { randomUUID } = require("crypto");
 const { fileURLToPath } = require("url");
 const vscode = require("vscode");
 const { collectThemeFiles, toAssetMap } = require("./asset-map");
+const { idleAnimationPool } = require("./idle-animations");
 
 const VENDOR_DIR = path.join(__dirname, "..", "vendor", "clawd");
 const VENDOR_SRC_DIR = path.join(VENDOR_DIR, "src");
@@ -573,6 +574,7 @@ class ClawdRuntime {
       assetMap,
       soundMap,
       agentIconMap,
+      idleAnimations: idleAnimationPool(theme, assetMap),
       reactions: theme && theme.reactions ? theme.reactions : {},
       hitBoxes: theme && theme.hitBoxes || {},
       wideHitboxFiles: theme && theme.wideHitboxFiles || [],

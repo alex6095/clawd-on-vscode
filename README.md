@@ -16,7 +16,16 @@ The runtime runs in the VS Code extension host, so local workspaces and Remote-S
 
 ## Meet 넙죽이 · Neobjuk
 
-Neobjuk brings the KAIST mascot reference to life with a broad, shallow head, raised shoulders, short feet, and gentle animation. Its idle eyes follow your pointer. Working brings out the keyboard; thinking adds heart glasses; parallel subagents start a dance. Notifications sparkle with a rainbow, errors turn furious, and quiet time leads through sleepy poses before waking with the next activity.
+Neobjuk brings the KAIST mascot reference to life with a broad, shallow head, raised shoulders, and short feet. Working brings alternating keyboard taps with short pauses to glance up; parallel subagents add a quicker rhythm and small task cards. Context organizing gathers scattered papers into a stack. Thinking, resting, and quiet moods keep gentle movement. Notifications sparkle with a rainbow, errors turn furious, and quiet time leads through sleepy poses before waking with the next activity.
+
+While idle, its eyes follow your pointer. After a random 14–28 seconds in the neutral pose, it briefly looks around, stretches, sits with a heart, blushes, or sends a kiss. Clawd also occasionally glances around or scratches, and Calico plays its relaxed idle loop. These leisure reactions keep the “Ready when you are” label, avoid consecutive repeats when alternatives exist, and stop as soon as work or an approval arrives. Paused, hidden, or reduced-motion views do not start idle reactions.
+
+<p align="center">
+  <img src="media/readme/neobjuk-work-motion.gif" width="340" alt="Installed Remote-SSH extension showing alternating typing, parallel task cards, and gathering context papers">
+  <img src="media/readme/neobjuk-idle-motion.gif" width="340" alt="An automatic idle kiss reaction returns to the neutral pose while the Ready when you are label stays unchanged">
+</p>
+
+Recorded from the installed extension in a Remote-SSH VS Code window. The work clip uses test lifecycle events to exercise typing, parallel work, and context organizing; the idle clip captures an automatic reaction, with the initial quiet wait shortened in the recording.
 
 <p align="center">
   <img src="media/readme/neobjuk-interactions.gif" width="480" alt="Recorded VS Code demonstration of Neobjuk idle click reactions and returning to the live state">
@@ -45,7 +54,7 @@ code --install-extension alex6095.clawd-on-vscode
 For a downloaded release VSIX:
 
 ```bash
-code --install-extension clawd-on-vscode-0.2.1.vsix
+code --install-extension clawd-on-vscode-0.2.2.vsix
 ```
 
 Or package a fresh VSIX locally:

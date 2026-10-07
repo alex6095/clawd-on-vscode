@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Give Neobjuk clearer typing, parallel-work, and context-organizing motions while keeping its shoulders, head, and body connected.
+- Add occasional randomized leisure reactions while idle, separated by quiet neutral intervals and without consecutive repeats when alternatives exist.
+- Keep leisure reactions separate from work, approvals, completion, and sleep; new activity interrupts them immediately.
+- Respect reduced motion, hidden views, pause, manual interactions, and animation previews when scheduling idle reactions.
+
 ## 0.2.1
 
 - Consolidate controls into the VS Code titlebar and overflow menu; remove the duplicate toolbar and server-port display.

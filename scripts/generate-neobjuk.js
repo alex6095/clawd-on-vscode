@@ -21,21 +21,30 @@ const bodyPath = "M94 132C107 137 135 137 147 132L148 171C150 179 147 185 146 18
 // shoulders, torso and feet. It has no overlapping arm root outlines.
 const tPosePath = "M94 132C108 137 135 137 147 132L148 136C158 134 171 136 177 141C186 148 180 162 169 159L148 153L148 172C150 180 147 185 146 188L146 198C147 206 141 211 133 210C126 210 122 208 122 199L122 190L119 190L119 199C119 208 113 211 105 210C97 210 94 207 95 198L95 186C92 181 92 176 93 171L93 153C82 157 72 162 65 159C56 155 59 145 65 141C74 135 86 133 94 136Z";
 
+// Contact frames alternate instead of making both hands flap together. The last
+// quarter of each phrase is a real rest with both paddles on the keyboard.
+const leftTapFrames = [[0, 0], [4, 20], [10, 0], [16, 20], [22, 0], [28, 20], [34, 0], [40, 20], [46, 0], [52, 20], [58, 0], [64, 20], [70, 0], [76, 0], [100, 0]];
+const rightTapFrames = [[0, 0], [4, 0], [10, -20], [16, 0], [22, -20], [28, 0], [34, -20], [40, 0], [46, -20], [52, 0], [58, -20], [64, 0], [70, -20], [76, 0], [100, 0]];
 const ARM_MOTIONS = Object.freeze({
   "nb-clasp-left": { pivot: ANATOMY.leftShoulder, degrees: -4, duration: 2.8 },
   "nb-clasp-right": { pivot: ANATOMY.rightShoulder, degrees: 4, duration: 2.8 },
   "nb-kiss-arm": { pivot: ANATOMY.leftShoulder, degrees: -6, duration: 3.2 },
   "nb-back-arm": { pivot: ANATOMY.rightShoulder, degrees: 8, duration: 1.9 },
   "nb-think-arm": { pivot: ANATOMY.leftShoulder, degrees: -3, duration: 4.4 },
-  "nb-type-left": { pivot: ANATOMY.leftShoulder, degrees: 3, duration: .65 },
-  "nb-type-right": { pivot: ANATOMY.rightShoulder, degrees: -3, duration: .8 },
-  "nb-tidy-left": { pivot: ANATOMY.leftShoulder, degrees: -11, duration: 2.8 },
-  "nb-tidy-right": { pivot: ANATOMY.rightShoulder, degrees: 11, duration: 2.8 },
+  "nb-type-left": { pivot: ANATOMY.leftShoulder, degrees: 20, duration: 3.6, frames: leftTapFrames },
+  "nb-type-right": { pivot: ANATOMY.rightShoulder, degrees: -20, duration: 3.6, frames: rightTapFrames },
+  "nb-multi-left": { pivot: ANATOMY.leftShoulder, degrees: 24, duration: 2.7, frames: leftTapFrames.map(([time, angle]) => [time, angle * 1.2]) },
+  "nb-multi-right": { pivot: ANATOMY.rightShoulder, degrees: -24, duration: 2.7, frames: rightTapFrames.map(([time, angle]) => [time, angle * 1.2]) },
+  "nb-tidy-left": { pivot: ANATOMY.leftShoulder, degrees: -22, duration: 4.2, frames: [[0, 0], [10, 0], [26, -22], [38, -22], [48, 0], [100, 0]] },
+  "nb-tidy-right": { pivot: ANATOMY.rightShoulder, degrees: 22, duration: 4.2, frames: [[0, 0], [44, 0], [62, 22], [74, 22], [84, 0], [100, 0]] },
+  "nb-stretch-left": { pivot: ANATOMY.leftShoulder, degrees: -55, duration: 7, frames: [[0, -55], [10, -55], [26, -12], [38, 0], [55, 0], [68, -12], [82, -55], [100, -55]] },
+  "nb-stretch-right": { pivot: ANATOMY.rightShoulder, degrees: 55, duration: 7, frames: [[0, 55], [10, 55], [26, 12], [38, 0], [55, 0], [68, 12], [82, 55], [100, 55]] },
   "nb-lying-arm": { pivot: [140, 167], degrees: -5, duration: 3.4 },
 });
-const armStyles = Object.entries(ARM_MOTIONS).map(([name, motion]) =>
-  `.${name}{transform-origin:${motion.pivot[0]}px ${motion.pivot[1]}px;animation:${name}-move ${motion.duration}s ease-in-out infinite}@keyframes ${name}-move{0%,100%{transform:rotate(0)}50%{transform:rotate(${motion.degrees}deg)}}`
-).join("\n");
+const armStyles = Object.entries(ARM_MOTIONS).map(([name, motion]) => {
+  const frames = motion.frames || [[0, 0], [50, motion.degrees], [100, 0]];
+  return `.${name}{transform-origin:${motion.pivot[0]}px ${motion.pivot[1]}px;animation:${name}-move ${motion.duration}s ease-in-out infinite}@keyframes ${name}-move{${frames.map(([time, angle]) => `${time}%{transform:rotate(${angle}deg)}`).join("")}}`;
+}).join("\n");
 
 const styles = `
   .nb-ink{stroke-linecap:round;stroke-linejoin:round}
@@ -63,6 +72,24 @@ const styles = `
   .nb-blanket{transform-origin:157px 214px;animation:nb-blanket 5.5s ease-in-out infinite}
   .nb-wake{transform-origin:120px 207px;animation:nb-wake 1.6s ease-out both}
   .nb-yawn{transform-origin:120px 142px;animation:nb-yawn 3.2s ease-in-out infinite}
+  .nb-work{transform-origin:120px 210px;animation:nb-work 3.6s ease-in-out infinite}
+  .nb-work-head{transform-origin:120px 140px;animation:nb-work-head 3.6s ease-in-out infinite}
+  .nb-multi{transform-origin:120px 210px;animation:nb-work 2.7s ease-in-out infinite}
+  .nb-multi-head{transform-origin:120px 140px;animation:nb-work-head 2.7s ease-in-out infinite}
+  .nb-key-left{animation:nb-key-left 3.6s infinite}
+  .nb-key-right{animation:nb-key-right 3.6s infinite}
+  .nb-multi .nb-key-left,.nb-multi .nb-key-right{animation-duration:2.7s}
+  .nb-task{animation:nb-task 2.7s ease-in-out infinite}
+  .nb-task-second{animation-delay:-1.8s}
+  .nb-task-third{animation-delay:-.9s}
+  .nb-tidy{transform-origin:120px 210px;animation:nb-tidy 4.2s ease-in-out infinite}
+  .nb-tidy-head{transform-origin:120px 140px;animation:nb-tidy-head 4.2s ease-in-out infinite}
+  .nb-paper-left{animation:nb-paper-left 4.2s ease-in-out infinite}
+  .nb-paper-right{animation:nb-paper-right 4.2s ease-in-out infinite}
+  .nb-stack{animation:nb-stack 4.2s ease-in-out infinite}
+  .nb-look-head{transform-origin:120px 140px;animation:nb-look-head 7.2s ease-in-out infinite}
+  .nb-look-gaze{animation:nb-look-gaze 7.2s ease-in-out infinite}
+  .nb-stretch{transform-origin:120px 210px;animation:nb-stretch 7s ease-in-out infinite}
   ${armStyles}
   @keyframes nb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.008,1.015)}}
   @keyframes nb-head{0%,100%{transform:rotate(0)}50%{transform:rotate(1deg)}}
@@ -84,6 +111,19 @@ const styles = `
   @keyframes nb-blanket{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03)}}
   @keyframes nb-wake{0%{transform:scale(.99,.96)}45%{transform:scale(1.01,1.03)}100%{transform:scale(1,1)}}
   @keyframes nb-yawn{0%,100%{transform:scale(1,1)}45%,65%{transform:scale(.99,1.025)}}
+  @keyframes nb-work{0%,76%,100%{transform:rotate(0) scale(1,1)}10%,34%,58%{transform:rotate(-.65deg) scale(1.003,.995)}22%,46%,70%{transform:rotate(.65deg) scale(1.003,.995)}}
+  @keyframes nb-work-head{0%,100%{transform:rotate(0)}10%,34%,58%{transform:rotate(1.7deg)}22%,46%,70%{transform:rotate(-1.7deg)}82%,92%{transform:rotate(-2.6deg)}}
+  @keyframes nb-key-left{0%,4%,16%,28%,40%,52%,64%,76%,100%{opacity:0}10%,22%,34%,46%,58%,70%{opacity:.8}}
+  @keyframes nb-key-right{0%,10%,22%,34%,46%,58%,70%,76%,100%{opacity:0}4%,16%,28%,40%,52%,64%{opacity:.8}}
+  @keyframes nb-task{0%,30%,100%{opacity:.55;transform:translateY(0)}8%,22%{opacity:1;transform:translateY(-3px)}}
+  @keyframes nb-tidy{0%,48%,84%,100%{transform:rotate(0)}26%,38%{transform:rotate(-1.8deg)}62%,74%{transform:rotate(1.8deg)}}
+  @keyframes nb-tidy-head{0%,48%,84%,100%{transform:rotate(0)}26%,38%{transform:rotate(-2deg)}62%,74%{transform:rotate(2deg)}}
+  @keyframes nb-paper-left{0%,10%,100%{opacity:1;transform:translate(0,0) rotate(-12deg)}26%{opacity:1;transform:translate(17px,5px) rotate(0)}38%,84%{opacity:0;transform:translate(29px,5px) rotate(0)}}
+  @keyframes nb-paper-right{0%,44%,100%{opacity:1;transform:translate(0,0) rotate(12deg)}62%{opacity:1;transform:translate(-17px,5px) rotate(0)}74%,84%{opacity:0;transform:translate(-29px,5px) rotate(0)}}
+  @keyframes nb-stack{0%,10%,100%{opacity:.45}38%,74%,84%{opacity:1}}
+  @keyframes nb-look-head{0%,8%,85%,100%{transform:rotate(0)}22%,35%{transform:rotate(-4.5deg)}54%,67%{transform:rotate(4.5deg)}}
+  @keyframes nb-look-gaze{0%,8%,85%,100%{transform:translate(0,0)}22%,35%{transform:translate(-2px,0)}54%,67%{transform:translate(2px,0)}}
+  @keyframes nb-stretch{0%,10%,82%,100%{transform:scale(1,1)}38%,55%{transform:scale(1,1.025)}}
   @media(prefers-reduced-motion:reduce){svg:not([data-force-motion]) *{animation:none!important}}
 `;
 
@@ -116,10 +156,10 @@ function tPose(fill = "url(#nb-blue)") {
 
 // Arm root caps stay inside the torso and do not have a closing black stroke.
 // Rotations pivot at the same root, so no frame can move the arm off its joint.
-function limb(side, outline, { motion = "", fill = "url(#nb-blue)", pivot = null } = {}) {
+function limb(side, outline, { motion = "", fill = "url(#nb-blue)", pivot = null, contact = null } = {}) {
   const joint = pivot || (side === "left" ? ANATOMY.leftShoulder : ANATOMY.rightShoulder);
   if (motion && ARM_MOTIONS[motion].pivot.join(" ") !== joint.join(" ")) throw new Error(`Wrong ${motion} arm pivot`);
-  return `<g class="${motion}" data-part="arm-${side}" data-arm-root="${joint.join(" ")}" data-root-radius="8"${motion ? ` data-arm-motion="${motion}"` : ""}>
+  return `<g class="${motion}" data-part="arm-${side}" data-arm-root="${joint.join(" ")}" data-root-radius="8"${motion ? ` data-arm-motion="${motion}"` : ""}${contact ? ` data-contact-point="${contact.join(" ")}"` : ""}>
     <circle cx="${joint[0]}" cy="${joint[1]}" r="8" fill="${fill}"/>
     <path d="${outline}Z" fill="${fill}"/>
     ${pathEl(outline, "none")}
@@ -132,7 +172,7 @@ const claspRight = "M141 134C136 127 129 118 122 116C114 114 111 122 116 132C125
 function clasp() {
   return limb("left", claspLeft, { motion: "nb-clasp-left" }) + limb("right", claspRight, { motion: "nb-clasp-right" });
 }
-function eyes(kind = "normal", lidFill = "url(#nb-blue)") {
+function eyes(kind = "normal", lidFill = "url(#nb-blue)", gaze = "") {
   if (kind === "dream") return `<g fill="none" stroke="#17212b" stroke-width="1.8" stroke-linecap="round"><path d="M81 97L95 97M143 97L157 97"/></g>`;
   if (kind === "sleep") return `<g fill="none" stroke-linecap="round"><path d="M81 97L95 97M143 97L157 97" stroke="white" stroke-width="4"/><path d="M85 97L92 97M147 97L153 97" stroke="#17212b" stroke-width="3"/></g>`;
   if (kind === "back" || kind === "rainbow") return "";
@@ -144,10 +184,10 @@ function eyes(kind = "normal", lidFill = "url(#nb-blue)") {
   }
   const radius = kind === "big" ? 27 : ANATOMY.eyeRadius;
   const pupil = kind === "big" ? 17.5 : ANATOMY.pupilRadius;
-  return `<g class="${kind === "big" ? "nb-bigblink" : "nb-blink"}"><g fill="white"><circle cx="88" cy="97" r="${radius}"/><circle cx="149" cy="97" r="${radius}"/></g><g id="nb-pupils" fill="#020506"><circle cx="88" cy="97" r="${pupil}"/><circle cx="149" cy="97" r="${pupil}"/></g></g>`;
+  return `<g class="${kind === "big" ? "nb-bigblink" : "nb-blink"}"><g fill="white"><circle cx="88" cy="97" r="${radius}"/><circle cx="149" cy="97" r="${radius}"/></g><g id="nb-pupils"${gaze ? ` class="${gaze}"` : ""} fill="#020506"><circle cx="88" cy="97" r="${pupil}"/><circle cx="149" cy="97" r="${pupil}"/></g></g>`;
 }
-function head(kind = "normal", { fill = "url(#nb-blue)", extras = "", tilt = 0 } = {}) {
-  return `<g data-part="head" data-neck="120 140"${tilt ? ` transform="rotate(${tilt} 120 140)"` : ""}><g class="nb-head">${pathEl(headPath, fill, 'data-part="head-outline"')}${eyes(kind, fill)}${extras}</g></g>`;
+function head(kind = "normal", { fill = "url(#nb-blue)", extras = "", tilt = 0, motion = "nb-head", gaze = "" } = {}) {
+  return `<g data-part="head" data-neck="120 140"${tilt ? ` transform="rotate(${tilt} 120 140)"` : ""}><g class="${motion}">${pathEl(headPath, fill, 'data-part="head-outline"')}${eyes(kind, fill, gaze)}${extras}</g></g>`;
 }
 function heart(x, y, scale = 1, classes = "", fill = "#ec008c", rotate = 0) {
   return `<g transform="translate(${x} ${y}) rotate(${rotate}) scale(${scale})"><g class="${classes}">${pathEl("M0 8C-3 1-10-3-15 2C-22 9-14 21 0 29C14 21 22 9 15 2C10-3 3 1 0 8Z", fill, "", fill === "#050607" ? "#536273" : "#151b22")}</g></g>`;
@@ -229,23 +269,53 @@ add("seated-heart", "넙죽이 · 앉아서 하트", "A broad foreground folded 
 add("sleeping", "넙죽이 · 잠", "The neutral shallow head lies diagonally, connected to a compact folded body, with slim sleepy glints.", lying(), { wide: true });
 add("loving-sleep", "넙죽이 · 이불과 꿈", "The same folded body sleeps with black eye slits under a pink blanket and drifting hearts.", lying({ blanket: true }), { wide: true });
 
-const typeLeft = "M99 134C105 139 109 151 112 163C119 173 112 180 104 176C95 170 92 157 92 146C92 139 94 136 99 134";
-const typeRight = "M141 134C135 140 131 154 128 164C121 174 128 180 136 176C145 169 148 155 148 145C148 139 146 136 141 134";
-add("typing", "넙죽이 · 작업", "Short connected forearms alternate taps from fixed shoulder pivots while the sunglasses follow the shallow head.", rig(torso() + head("normal", { extras: sunglasses }) + limb("left", typeLeft, { motion: "nb-type-left" }) + limb("right", typeRight, { motion: "nb-type-right" })) + pathEl("M82 174H158L166 190H74Z", "#e6f2f8") + `<path d="M83 180H157M79 186H161M92 177L88 187M106 177L104 187M120 177V187M134 177L137 187M148 177L153 187" fill="none" stroke="#315363" stroke-width="1.1"/>`, { canonical: false });
-add("tidying", "넙죽이 · 정리", "The high shoulder roots stay fixed as the open arms alternately sweep small arcs.", rig(torso() + limb("left", openLeft, { motion: "nb-tidy-left" }) + limb("right", openRight, { motion: "nb-tidy-right" }) + head()), { canonical: false });
+const typeLeft = "M99 134C90 139 85 150 84 162C82 171 84 180 91 181C100 184 106 177 103 168C101 156 104 144 99 134";
+const typeRight = "M141 134C150 139 155 150 156 162C158 171 156 180 149 181C140 184 134 177 137 168C139 156 136 144 141 134";
+function keyboard() {
+  return `<g data-part="keyboard" data-contact-y="181">${pathEl("M77 176H163L174 195H66Z", "#e6f2f8")}<path d="M79 181H161M74 188H166M91 178L85 191M106 178L103 191M120 178V191M134 178L137 191M149 178L155 191" fill="none" stroke="#315363" stroke-width="1.1"/><path class="nb-key-left" d="M84 178H97L95 184H81Z" fill="#77c9e8"/><path class="nb-key-right" d="M143 178H156L159 184H145Z" fill="#77c9e8"/></g>`;
+}
+function working({ parallel = false } = {}) {
+  const prefix = parallel ? "nb-multi" : "nb-type";
+  return rig(torso() + head("normal", { extras: sunglasses, motion: parallel ? "nb-multi-head" : "nb-work-head" }) + keyboard()
+    + limb("left", typeLeft, { motion: `${prefix}-left`, contact: [91, 181] })
+    + limb("right", typeRight, { motion: `${prefix}-right`, contact: [149, 181] }), parallel ? "nb-multi" : "nb-work");
+}
+function taskCard(x, y, extraClass = "") {
+  return `<g transform="translate(${x} ${y})"><g class="nb-task ${extraClass}" data-part="parallel-task">${pathEl("M0 0H27V20H0Z", "#f5f7fa")}<path d="M4 5H23M4 10H17M4 15H12" fill="none" stroke="#4c8096" stroke-width="1.8" stroke-linecap="round"/><circle cx="22" cy="15" r="2.3" fill="#efb759"/></g></g>`;
+}
+add("typing", "넙죽이 · 작업", "Connected paddles clearly lift and press alternating keys; a small head and torso rhythm settles for a brief rest between typing phrases.", working(), { canonical: false });
+add("multitasking", "넙죽이 · 여러 작업", "Faster alternating keyboard contact and three softly highlighted task cards show parallel work, with connected shoulders and a short rest between phrases.", taskCard(35, 153) + taskCard(177, 151, "nb-task-second") + taskCard(177, 179, "nb-task-third") + working({ parallel: true }), { canonical: false });
+const tidyLeft = "M99 134C90 137 79 151 67 170C60 177 62 186 70 186C81 186 89 168 99 151";
+const tidyRight = "M141 134C150 137 161 151 173 170C180 177 178 186 170 186C159 186 151 168 141 151";
+const tidyPapers = `<g data-part="context-papers"><path d="M56 200H184" stroke="#526b7a" stroke-width="1.8" stroke-linecap="round"/><g class="nb-stack">${pathEl("M107 190H133V198H107Z", "#c7e4ef")}<path d="M107 193H133M107 196H133" stroke="#5d8ea3" stroke-width="1.1"/></g><g transform="translate(69 185)"><g class="nb-paper-left">${pathEl("M-10 -5H10V5H-10Z", "#f2f6fa")}<path d="M-6 -1H6M-6 2H2" stroke="#6595aa" stroke-width="1.2"/></g></g><g transform="translate(171 185)"><g class="nb-paper-right">${pathEl("M-10 -5H10V5H-10Z", "#f2f6fa")}<path d="M-6 -1H6M-6 2H2" stroke="#6595aa" stroke-width="1.2"/></g></g></g>`;
+add("tidying", "넙죽이 · 정리", "Alternating shoulder-rooted hands sweep scattered context slips inward, pausing over each slip before a neat central stack settles.", rig(torso() + head("normal", { motion: "nb-tidy-head" }) + tidyPapers + limb("left", tidyLeft, { motion: "nb-tidy-left" }) + limb("right", tidyRight, { motion: "nb-tidy-right" }), "nb-tidy"), { canonical: false });
+add("look-around", "넙죽이 · 두리번", "At leisure, the relaxed character slowly looks to either side and settles back to center, with no work props or tapping hands.", rig(tPose() + head("normal", { motion: "nb-look-head", gaze: "nb-look-gaze" })), { canonical: false });
+const stretchLeft = "M99 134C91 126 80 112 76 101C72 92 64 97 67 107C70 124 83 143 99 151";
+const stretchRight = "M141 134C150 126 161 112 165 101C170 92 178 98 174 109C169 126 157 143 141 151";
+add("stretch", "넙죽이 · 편안한 기지개", "An unhurried leisure stretch lifts both connected paddles beside the head, holds, and lowers them as the torso gently lengthens over planted feet.", rig(torso() + head() + limb("left", stretchLeft, { motion: "nb-stretch-left" }) + limb("right", stretchRight, { motion: "nb-stretch-right" }), "nb-stretch"), { canonical: false });
 add("yawning", "넙죽이 · 기지개", "Both connected arms rise from the neutral shoulders as the whole compact body slowly stretches.", rig(torso() + head("tired") + limb("left", "M99 134C91 126 80 112 76 101C72 92 64 97 67 107C70 124 83 143 99 151") + limb("right", "M141 134C150 126 161 112 165 101C170 92 178 98 174 109C169 126 157 143 141 151"), "nb-yawn"), { canonical: false });
 add("waking", "넙죽이 · 깨어남", "The continuous neutral shoulders and short feet stretch awake together beneath bright big eyes.", rig(tPose() + head("big"), "nb-wake"), { canonical: false });
 
+const leisureAnimations = [
+  { file: "neobjuk-seated-heart.svg", duration: 6500 },
+  { file: "neobjuk-look-around.svg", duration: 7200 },
+  { file: "neobjuk-stretch.svg", duration: 7000 },
+  { file: "neobjuk-shy.svg", duration: 6500 },
+  { file: "neobjuk-kiss.svg", duration: 6500 },
+];
+// A chosen reference expression remains previewable. Idle rotation must still
+// read as leisure when that expression is also used to signal a runtime event.
+const eventExpressions = new Set(["excited", "rainbow", "furious", "cool", "heart-glasses", "coffee", "sleeping", "loving-sleep", "tilted-heart"]);
 function makeTheme() {
   const pose = (id) => [`neobjuk-${id}.svg`];
   const states = {
     idle: pose("neutral"), thinking: pose("heart-glasses"), working: pose("typing"),
-    juggling: pose("dancing"), attention: pose("excited"), notification: pose("rainbow"),
+    juggling: pose("multitasking"), attention: pose("excited"), notification: pose("rainbow"),
     error: pose("furious"), sweeping: pose("tidying"), carrying: pose("heart-glasses"),
     yawning: pose("yawning"), dozing: pose("coffee"), collapsing: pose("loving-sleep"),
     sleeping: pose("sleeping"), waking: pose("waking"),
   };
-  for (const asset of assets.filter((a) => a.canonical)) states[`pose-${asset.id}`] = [asset.file];
+  for (const asset of assets.filter((a) => a.canonical || ["look-around", "stretch"].includes(a.id))) states[`pose-${asset.id}`] = [asset.file];
   return {
     schemaVersion: 1, name: "넙죽이 · Neobjuk", author: "alex6095", version: "1.0.0",
     description: "Animated SVG poses reproduced from the user-provided KAIST Neobjuk mascot reference.",
@@ -258,18 +328,21 @@ function makeTheme() {
     layout: { contentBox: { x: 32, y: 48, width: 176, height: 162 }, centerX: 120, baselineY: 210, visibleHeightRatio: .64, baselineBottomRatio: .08 },
     eyeTracking: { enabled: true, states: ["idle", "pose-neutral"], eyeRatioX: .5, eyeRatioY: .404, maxOffset: 2, trackingLayers: { pupils: { ids: ["nb-pupils"], maxOffset: 2, ease: .13 } } },
     states,
-    variants: Object.fromEntries(assets.filter((a) => a.canonical).map((a) => [a.id === "neutral" ? "default" : a.id, { name: a.name, description: a.description, preview: a.file, idleAnimations: [{ file: a.file, duration: 6500 }] }])),
+    variants: Object.fromEntries(assets.filter((a) => a.canonical).map((a) => [a.id === "neutral" ? "default" : a.id, {
+      name: a.name, description: a.description, preview: a.file,
+      idleAnimations: a.id === "neutral" || eventExpressions.has(a.id) ? leisureAnimations.map((animation) => ({ ...animation })) : [{ file: a.file, duration: 6500 }, ...leisureAnimations.filter((animation) => animation.file !== a.file).map((animation) => ({ ...animation }))],
+    }])),
     workingTiers: [{ minSessions: 1, file: "neobjuk-typing.svg" }],
-    jugglingTiers: [{ minSessions: 1, file: "neobjuk-dancing.svg" }],
-    idleAnimations: [{ file: "neobjuk-seated-heart.svg", duration: 6500 }, { file: "neobjuk-cool.svg", duration: 6500 }, { file: "neobjuk-shy.svg", duration: 6500 }],
+    jugglingTiers: [{ minSessions: 1, file: "neobjuk-multitasking.svg" }],
+    idleAnimations: leisureAnimations.map((animation) => ({ ...animation })),
     displayHintMap: {
       "clawd-working-thinking.svg": "neobjuk-heart-glasses.svg",
       "clawd-working-debugger.svg": "neobjuk-cool.svg",
-      "clawd-idle-reading.svg": "neobjuk-seated-heart.svg",
+      "clawd-idle-reading.svg": "neobjuk-heart-glasses.svg",
       "clawd-working-typing.svg": "neobjuk-typing.svg",
       "clawd-working-building.svg": "neobjuk-typing.svg",
-      "clawd-working-juggling.svg": "neobjuk-dancing.svg",
-      "clawd-working-conducting.svg": "neobjuk-dancing.svg",
+      "clawd-working-juggling.svg": "neobjuk-multitasking.svg",
+      "clawd-working-conducting.svg": "neobjuk-multitasking.svg",
       "clawd-working-sweeping.svg": "neobjuk-tidying.svg",
       "clawd-working-carrying.svg": "neobjuk-heart-glasses.svg",
     },

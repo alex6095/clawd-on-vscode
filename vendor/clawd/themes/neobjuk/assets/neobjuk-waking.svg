@@ -37,16 +37,38 @@
   .nb-blanket{transform-origin:157px 214px;animation:nb-blanket 5.5s ease-in-out infinite}
   .nb-wake{transform-origin:120px 207px;animation:nb-wake 1.6s ease-out both}
   .nb-yawn{transform-origin:120px 142px;animation:nb-yawn 3.2s ease-in-out infinite}
-  .nb-clasp-left{transform-origin:99px 142px;animation:nb-clasp-left-move 2.8s ease-in-out infinite}@keyframes nb-clasp-left-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg)}}
-.nb-clasp-right{transform-origin:141px 142px;animation:nb-clasp-right-move 2.8s ease-in-out infinite}@keyframes nb-clasp-right-move{0%,100%{transform:rotate(0)}50%{transform:rotate(4deg)}}
-.nb-kiss-arm{transform-origin:99px 142px;animation:nb-kiss-arm-move 3.2s ease-in-out infinite}@keyframes nb-kiss-arm-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-6deg)}}
-.nb-back-arm{transform-origin:141px 142px;animation:nb-back-arm-move 1.9s ease-in-out infinite}@keyframes nb-back-arm-move{0%,100%{transform:rotate(0)}50%{transform:rotate(8deg)}}
-.nb-think-arm{transform-origin:99px 142px;animation:nb-think-arm-move 4.4s ease-in-out infinite}@keyframes nb-think-arm-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}
-.nb-type-left{transform-origin:99px 142px;animation:nb-type-left-move 0.65s ease-in-out infinite}@keyframes nb-type-left-move{0%,100%{transform:rotate(0)}50%{transform:rotate(3deg)}}
-.nb-type-right{transform-origin:141px 142px;animation:nb-type-right-move 0.8s ease-in-out infinite}@keyframes nb-type-right-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}
-.nb-tidy-left{transform-origin:99px 142px;animation:nb-tidy-left-move 2.8s ease-in-out infinite}@keyframes nb-tidy-left-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-11deg)}}
-.nb-tidy-right{transform-origin:141px 142px;animation:nb-tidy-right-move 2.8s ease-in-out infinite}@keyframes nb-tidy-right-move{0%,100%{transform:rotate(0)}50%{transform:rotate(11deg)}}
-.nb-lying-arm{transform-origin:140px 167px;animation:nb-lying-arm-move 3.4s ease-in-out infinite}@keyframes nb-lying-arm-move{0%,100%{transform:rotate(0)}50%{transform:rotate(-5deg)}}
+  .nb-work{transform-origin:120px 210px;animation:nb-work 3.6s ease-in-out infinite}
+  .nb-work-head{transform-origin:120px 140px;animation:nb-work-head 3.6s ease-in-out infinite}
+  .nb-multi{transform-origin:120px 210px;animation:nb-work 2.7s ease-in-out infinite}
+  .nb-multi-head{transform-origin:120px 140px;animation:nb-work-head 2.7s ease-in-out infinite}
+  .nb-key-left{animation:nb-key-left 3.6s infinite}
+  .nb-key-right{animation:nb-key-right 3.6s infinite}
+  .nb-multi .nb-key-left,.nb-multi .nb-key-right{animation-duration:2.7s}
+  .nb-task{animation:nb-task 2.7s ease-in-out infinite}
+  .nb-task-second{animation-delay:-1.8s}
+  .nb-task-third{animation-delay:-.9s}
+  .nb-tidy{transform-origin:120px 210px;animation:nb-tidy 4.2s ease-in-out infinite}
+  .nb-tidy-head{transform-origin:120px 140px;animation:nb-tidy-head 4.2s ease-in-out infinite}
+  .nb-paper-left{animation:nb-paper-left 4.2s ease-in-out infinite}
+  .nb-paper-right{animation:nb-paper-right 4.2s ease-in-out infinite}
+  .nb-stack{animation:nb-stack 4.2s ease-in-out infinite}
+  .nb-look-head{transform-origin:120px 140px;animation:nb-look-head 7.2s ease-in-out infinite}
+  .nb-look-gaze{animation:nb-look-gaze 7.2s ease-in-out infinite}
+  .nb-stretch{transform-origin:120px 210px;animation:nb-stretch 7s ease-in-out infinite}
+  .nb-clasp-left{transform-origin:99px 142px;animation:nb-clasp-left-move 2.8s ease-in-out infinite}@keyframes nb-clasp-left-move{0%{transform:rotate(0deg)}50%{transform:rotate(-4deg)}100%{transform:rotate(0deg)}}
+.nb-clasp-right{transform-origin:141px 142px;animation:nb-clasp-right-move 2.8s ease-in-out infinite}@keyframes nb-clasp-right-move{0%{transform:rotate(0deg)}50%{transform:rotate(4deg)}100%{transform:rotate(0deg)}}
+.nb-kiss-arm{transform-origin:99px 142px;animation:nb-kiss-arm-move 3.2s ease-in-out infinite}@keyframes nb-kiss-arm-move{0%{transform:rotate(0deg)}50%{transform:rotate(-6deg)}100%{transform:rotate(0deg)}}
+.nb-back-arm{transform-origin:141px 142px;animation:nb-back-arm-move 1.9s ease-in-out infinite}@keyframes nb-back-arm-move{0%{transform:rotate(0deg)}50%{transform:rotate(8deg)}100%{transform:rotate(0deg)}}
+.nb-think-arm{transform-origin:99px 142px;animation:nb-think-arm-move 4.4s ease-in-out infinite}@keyframes nb-think-arm-move{0%{transform:rotate(0deg)}50%{transform:rotate(-3deg)}100%{transform:rotate(0deg)}}
+.nb-type-left{transform-origin:99px 142px;animation:nb-type-left-move 3.6s ease-in-out infinite}@keyframes nb-type-left-move{0%{transform:rotate(0deg)}4%{transform:rotate(20deg)}10%{transform:rotate(0deg)}16%{transform:rotate(20deg)}22%{transform:rotate(0deg)}28%{transform:rotate(20deg)}34%{transform:rotate(0deg)}40%{transform:rotate(20deg)}46%{transform:rotate(0deg)}52%{transform:rotate(20deg)}58%{transform:rotate(0deg)}64%{transform:rotate(20deg)}70%{transform:rotate(0deg)}76%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-type-right{transform-origin:141px 142px;animation:nb-type-right-move 3.6s ease-in-out infinite}@keyframes nb-type-right-move{0%{transform:rotate(0deg)}4%{transform:rotate(0deg)}10%{transform:rotate(-20deg)}16%{transform:rotate(0deg)}22%{transform:rotate(-20deg)}28%{transform:rotate(0deg)}34%{transform:rotate(-20deg)}40%{transform:rotate(0deg)}46%{transform:rotate(-20deg)}52%{transform:rotate(0deg)}58%{transform:rotate(-20deg)}64%{transform:rotate(0deg)}70%{transform:rotate(-20deg)}76%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-multi-left{transform-origin:99px 142px;animation:nb-multi-left-move 2.7s ease-in-out infinite}@keyframes nb-multi-left-move{0%{transform:rotate(0deg)}4%{transform:rotate(24deg)}10%{transform:rotate(0deg)}16%{transform:rotate(24deg)}22%{transform:rotate(0deg)}28%{transform:rotate(24deg)}34%{transform:rotate(0deg)}40%{transform:rotate(24deg)}46%{transform:rotate(0deg)}52%{transform:rotate(24deg)}58%{transform:rotate(0deg)}64%{transform:rotate(24deg)}70%{transform:rotate(0deg)}76%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-multi-right{transform-origin:141px 142px;animation:nb-multi-right-move 2.7s ease-in-out infinite}@keyframes nb-multi-right-move{0%{transform:rotate(0deg)}4%{transform:rotate(0deg)}10%{transform:rotate(-24deg)}16%{transform:rotate(0deg)}22%{transform:rotate(-24deg)}28%{transform:rotate(0deg)}34%{transform:rotate(-24deg)}40%{transform:rotate(0deg)}46%{transform:rotate(-24deg)}52%{transform:rotate(0deg)}58%{transform:rotate(-24deg)}64%{transform:rotate(0deg)}70%{transform:rotate(-24deg)}76%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-tidy-left{transform-origin:99px 142px;animation:nb-tidy-left-move 4.2s ease-in-out infinite}@keyframes nb-tidy-left-move{0%{transform:rotate(0deg)}10%{transform:rotate(0deg)}26%{transform:rotate(-22deg)}38%{transform:rotate(-22deg)}48%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-tidy-right{transform-origin:141px 142px;animation:nb-tidy-right-move 4.2s ease-in-out infinite}@keyframes nb-tidy-right-move{0%{transform:rotate(0deg)}44%{transform:rotate(0deg)}62%{transform:rotate(22deg)}74%{transform:rotate(22deg)}84%{transform:rotate(0deg)}100%{transform:rotate(0deg)}}
+.nb-stretch-left{transform-origin:99px 142px;animation:nb-stretch-left-move 7s ease-in-out infinite}@keyframes nb-stretch-left-move{0%{transform:rotate(-55deg)}10%{transform:rotate(-55deg)}26%{transform:rotate(-12deg)}38%{transform:rotate(0deg)}55%{transform:rotate(0deg)}68%{transform:rotate(-12deg)}82%{transform:rotate(-55deg)}100%{transform:rotate(-55deg)}}
+.nb-stretch-right{transform-origin:141px 142px;animation:nb-stretch-right-move 7s ease-in-out infinite}@keyframes nb-stretch-right-move{0%{transform:rotate(55deg)}10%{transform:rotate(55deg)}26%{transform:rotate(12deg)}38%{transform:rotate(0deg)}55%{transform:rotate(0deg)}68%{transform:rotate(12deg)}82%{transform:rotate(55deg)}100%{transform:rotate(55deg)}}
+.nb-lying-arm{transform-origin:140px 167px;animation:nb-lying-arm-move 3.4s ease-in-out infinite}@keyframes nb-lying-arm-move{0%{transform:rotate(0deg)}50%{transform:rotate(-5deg)}100%{transform:rotate(0deg)}}
   @keyframes nb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.008,1.015)}}
   @keyframes nb-head{0%,100%{transform:rotate(0)}50%{transform:rotate(1deg)}}
   @keyframes nb-blink{0%,42%,47%,100%{transform:scaleY(1)}44.5%{transform:scaleY(.065)}}
@@ -67,6 +89,19 @@
   @keyframes nb-blanket{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03)}}
   @keyframes nb-wake{0%{transform:scale(.99,.96)}45%{transform:scale(1.01,1.03)}100%{transform:scale(1,1)}}
   @keyframes nb-yawn{0%,100%{transform:scale(1,1)}45%,65%{transform:scale(.99,1.025)}}
+  @keyframes nb-work{0%,76%,100%{transform:rotate(0) scale(1,1)}10%,34%,58%{transform:rotate(-.65deg) scale(1.003,.995)}22%,46%,70%{transform:rotate(.65deg) scale(1.003,.995)}}
+  @keyframes nb-work-head{0%,100%{transform:rotate(0)}10%,34%,58%{transform:rotate(1.7deg)}22%,46%,70%{transform:rotate(-1.7deg)}82%,92%{transform:rotate(-2.6deg)}}
+  @keyframes nb-key-left{0%,4%,16%,28%,40%,52%,64%,76%,100%{opacity:0}10%,22%,34%,46%,58%,70%{opacity:.8}}
+  @keyframes nb-key-right{0%,10%,22%,34%,46%,58%,70%,76%,100%{opacity:0}4%,16%,28%,40%,52%,64%{opacity:.8}}
+  @keyframes nb-task{0%,30%,100%{opacity:.55;transform:translateY(0)}8%,22%{opacity:1;transform:translateY(-3px)}}
+  @keyframes nb-tidy{0%,48%,84%,100%{transform:rotate(0)}26%,38%{transform:rotate(-1.8deg)}62%,74%{transform:rotate(1.8deg)}}
+  @keyframes nb-tidy-head{0%,48%,84%,100%{transform:rotate(0)}26%,38%{transform:rotate(-2deg)}62%,74%{transform:rotate(2deg)}}
+  @keyframes nb-paper-left{0%,10%,100%{opacity:1;transform:translate(0,0) rotate(-12deg)}26%{opacity:1;transform:translate(17px,5px) rotate(0)}38%,84%{opacity:0;transform:translate(29px,5px) rotate(0)}}
+  @keyframes nb-paper-right{0%,44%,100%{opacity:1;transform:translate(0,0) rotate(12deg)}62%{opacity:1;transform:translate(-17px,5px) rotate(0)}74%,84%{opacity:0;transform:translate(-29px,5px) rotate(0)}}
+  @keyframes nb-stack{0%,10%,100%{opacity:.45}38%,74%,84%{opacity:1}}
+  @keyframes nb-look-head{0%,8%,85%,100%{transform:rotate(0)}22%,35%{transform:rotate(-4.5deg)}54%,67%{transform:rotate(4.5deg)}}
+  @keyframes nb-look-gaze{0%,8%,85%,100%{transform:translate(0,0)}22%,35%{transform:translate(-2px,0)}54%,67%{transform:translate(2px,0)}}
+  @keyframes nb-stretch{0%,10%,82%,100%{transform:scale(1,1)}38%,55%{transform:scale(1,1.025)}}
   @media(prefers-reduced-motion:reduce){svg:not([data-force-motion]) *{animation:none!important}}
 </style>
 </defs>

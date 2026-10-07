@@ -60,7 +60,7 @@
       "neobjuk-typing.svg"
     ],
     "juggling": [
-      "neobjuk-dancing.svg"
+      "neobjuk-multitasking.svg"
     ],
     "attention": [
       "neobjuk-excited.svg"
@@ -142,6 +142,12 @@
     ],
     "pose-loving-sleep": [
       "neobjuk-loving-sleep.svg"
+    ],
+    "pose-look-around": [
+      "neobjuk-look-around.svg"
+    ],
+    "pose-stretch": [
+      "neobjuk-stretch.svg"
     ]
   },
   "variants": {
@@ -151,7 +157,23 @@
       "preview": "neobjuk-neutral.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-neutral.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -162,7 +184,23 @@
       "preview": "neobjuk-excited.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-excited.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -175,6 +213,22 @@
         {
           "file": "neobjuk-shy.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -185,6 +239,22 @@
       "idleAnimations": [
         {
           "file": "neobjuk-kiss.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
           "duration": 6500
         }
       ]
@@ -197,6 +267,26 @@
         {
           "file": "neobjuk-dancing.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -206,7 +296,23 @@
       "preview": "neobjuk-rainbow.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-rainbow.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -219,6 +325,26 @@
         {
           "file": "neobjuk-annoyed.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -228,7 +354,23 @@
       "preview": "neobjuk-furious.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-furious.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -239,7 +381,23 @@
       "preview": "neobjuk-cool.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-cool.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -252,6 +410,26 @@
         {
           "file": "neobjuk-crying.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -261,7 +439,23 @@
       "preview": "neobjuk-tilted-heart.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-tilted-heart.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -272,7 +466,23 @@
       "preview": "neobjuk-heart-glasses.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-heart-glasses.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -285,6 +495,26 @@
         {
           "file": "neobjuk-sad.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -294,7 +524,23 @@
       "preview": "neobjuk-coffee.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-coffee.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -307,6 +553,22 @@
         {
           "file": "neobjuk-seated-heart.svg",
           "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
+          "duration": 6500
         }
       ]
     },
@@ -316,7 +578,23 @@
       "preview": "neobjuk-sleeping.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-sleeping.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -327,7 +605,23 @@
       "preview": "neobjuk-loving-sleep.svg",
       "idleAnimations": [
         {
-          "file": "neobjuk-loving-sleep.svg",
+          "file": "neobjuk-seated-heart.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-look-around.svg",
+          "duration": 7200
+        },
+        {
+          "file": "neobjuk-stretch.svg",
+          "duration": 7000
+        },
+        {
+          "file": "neobjuk-shy.svg",
+          "duration": 6500
+        },
+        {
+          "file": "neobjuk-kiss.svg",
           "duration": 6500
         }
       ]
@@ -342,7 +636,7 @@
   "jugglingTiers": [
     {
       "minSessions": 1,
-      "file": "neobjuk-dancing.svg"
+      "file": "neobjuk-multitasking.svg"
     }
   ],
   "idleAnimations": [
@@ -351,22 +645,30 @@
       "duration": 6500
     },
     {
-      "file": "neobjuk-cool.svg",
-      "duration": 6500
+      "file": "neobjuk-look-around.svg",
+      "duration": 7200
+    },
+    {
+      "file": "neobjuk-stretch.svg",
+      "duration": 7000
     },
     {
       "file": "neobjuk-shy.svg",
+      "duration": 6500
+    },
+    {
+      "file": "neobjuk-kiss.svg",
       "duration": 6500
     }
   ],
   "displayHintMap": {
     "clawd-working-thinking.svg": "neobjuk-heart-glasses.svg",
     "clawd-working-debugger.svg": "neobjuk-cool.svg",
-    "clawd-idle-reading.svg": "neobjuk-seated-heart.svg",
+    "clawd-idle-reading.svg": "neobjuk-heart-glasses.svg",
     "clawd-working-typing.svg": "neobjuk-typing.svg",
     "clawd-working-building.svg": "neobjuk-typing.svg",
-    "clawd-working-juggling.svg": "neobjuk-dancing.svg",
-    "clawd-working-conducting.svg": "neobjuk-dancing.svg",
+    "clawd-working-juggling.svg": "neobjuk-multitasking.svg",
+    "clawd-working-conducting.svg": "neobjuk-multitasking.svg",
     "clawd-working-sweeping.svg": "neobjuk-tidying.svg",
     "clawd-working-carrying.svg": "neobjuk-heart-glasses.svg"
   },
